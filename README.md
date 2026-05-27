@@ -29,7 +29,13 @@ npm start       # production (requires npm run build first)
 
 ## Configure in Claude Code
 
-Add to your MCP settings:
+```sh
+claude mcp add --transport http poe2-mcp http://localhost:3000/mcp
+```
+
+Add `--scope user` to make it available across all projects (default is project-local).
+
+Or manually add to your MCP settings:
 
 ```json
 {
