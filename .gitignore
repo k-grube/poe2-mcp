@@ -1,0 +1,5 @@
+node_modules/
+dist/
+pob2/
+.env
+*.js.map

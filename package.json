@@ -1,0 +1,30 @@
+{
+  "name": "poe2-mcp",
+  "version": "0.1.0",
+  "description": "MCP server wrapping PathOfBuilding-PoE2 for build evaluation",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "setup": "tsx src/setup.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "dotenv": "17.4.2",
+    "express": "5.2.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "25.9.1",
+    "tsx": "4.22.3",
+    "typescript": "6.0.0-dev.20260416",
+    "vitest": "4.1.7"
+  }
+}
