@@ -138,3 +138,16 @@ export async function analyzeHandler(bridge: LuaBridge, args: unknown): Promise<
     }
   }
 }
+
+// reset_tree
+
+export const resetDef: Tool = {
+  name: 'reset_tree',
+  description:
+    'Clear every allocated passive tree node. Class start, ascendancy, and ascendancy nodes are preserved. Useful for "start from scratch" SA experiments where the input is a class + gear and you want the tree built up by tool calls. Returns removed count and remaining points_used. Call load_build first.',
+  inputSchema: { type: 'object' as const, properties: {}, required: [] },
+}
+
+export async function resetHandler(bridge: LuaBridge, _args: unknown): Promise<CallToolResult> {
+  return call(bridge, 'reset_tree')
+}

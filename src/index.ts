@@ -74,8 +74,16 @@ async function main() {
     process.stderr.write(`[http] <- handleRequest done\n`)
   })
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`poe2-mcp listening on http://localhost:${PORT}/mcp`)
+  })
+  // crash loudly if the bind fails (EADDRINUSE etc) — silent failure causes
+  // confusing "the server appears up but my requests hang" sessions when a
+  // stale process is holding the port.
+  server.on('error', (err) => {
+    console.error(`server bind failed on port ${PORT}: ${err.message}`)
+    bridge.kill()
+    process.exit(1)
   })
 
   process.on('SIGINT', () => {

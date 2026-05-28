@@ -65,10 +65,20 @@ export class LuaBridge {
     this.proc.stderr!.on('data', (chunk: string) => {
       process.stderr.write(`[luajit] ${chunk}`)
     })
-    this.proc.on('exit', (code) => {
-      if (code !== 0) {
-        this.rejectAll(new Error(`LuaJIT exited with code ${code}`))
-      }
+    // any exit (clean or not) invalidates the bridge: null out the handle so
+    // subsequent send() fails fast instead of writing into a dead pipe and
+    // hanging until the per-cmd timeout fires.
+    this.proc.on('exit', (code, signal) => {
+      process.stderr.write(`[bridge] luajit exited code=${code} signal=${signal}\n`)
+      this.rejectAll(new Error(`LuaJIT exited (code=${code} signal=${signal})`))
+      this.proc = null
+    })
+    // stdin EPIPE on writes to a dead pipe: surface immediately rather than
+    // silently dropping the write.
+    this.proc.stdin!.on('error', (err) => {
+      process.stderr.write(`[bridge] stdin error: ${err.message}\n`)
+      this.rejectAll(new Error(`bridge stdin error: ${err.message}`))
+      this.proc = null
     })
 
     return new Promise<void>((resolve, reject) => {
