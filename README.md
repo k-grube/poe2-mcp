@@ -49,22 +49,22 @@ Or manually add to your MCP settings:
 
 ## Available tools
 
-| Tool | What it does |
-|---|---|
-| `load_build` | Load a PoB2 XML export. Required before other tools. |
-| `get_dps` | Full DPS, avg hit, DoT DPS, minion DPS |
-| `get_ehp` | Life, ES, ward, armour, evasion, block, spell suppression |
-| `get_breakpoints` | Crit cap, hit chance, resistance caps |
-| `compare_gem_swap` | Swap a gem, compare DPS delta, restore original |
-| `get_tree_summary` | Points used, keystones, notable passives |
-| `update_pob2` | Pull latest PoB2 from GitHub + restart Lua subprocess |
+| Tool               | What it does                                              |
+| ------------------ | --------------------------------------------------------- |
+| `load_build`       | Load a PoB2 XML export. Required before other tools.      |
+| `get_dps`          | Full DPS, avg hit, DoT DPS, minion DPS                    |
+| `get_ehp`          | Life, ES, ward, armour, evasion, block, spell suppression |
+| `get_breakpoints`  | Crit cap, hit chance, resistance caps                     |
+| `compare_gem_swap` | Swap a gem, compare DPS delta, restore original           |
+| `get_tree_summary` | Points used, keystones, notable passives                  |
+| `update_pob2`      | Pull latest PoB2 from GitHub + restart Lua subprocess     |
 
 ## Environment variables
 
-| Var | Default | Description |
-|---|---|---|
-| `PORT` | `3000` | HTTP port |
-| `POB2_BRANCH` | `dev` | PoB2 branch. Use `master` for last stable release. |
+| Var           | Default | Description                                        |
+| ------------- | ------- | -------------------------------------------------- |
+| `PORT`        | `3000`  | HTTP port                                          |
+| `POB2_BRANCH` | `dev`   | PoB2 branch. Use `master` for last stable release. |
 
 ## Windows
 

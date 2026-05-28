@@ -4,7 +4,28 @@
 
 local json = require("dkjson")
 
--- prevent HeadlessWrapper's promptMsg io.read from consuming a command line
+-- lua-utf8 is a Windows-only DLL; on Mac/Linux require('lua-utf8') fails.
+-- inject a pure-Lua shim so Common.lua gets a working utf8 table.
+-- string.* functions are ASCII/byte equivalents -- close enough for PoB2's formatting code.
+if not pcall(require, 'lua-utf8') then
+  package.preload['lua-utf8'] = function()
+    return {
+      char    = string.char,
+      byte    = string.byte,
+      len     = string.len,
+      sub     = string.sub,
+      find    = string.find,
+      gsub    = string.gsub,
+      gmatch  = string.gmatch,
+      match   = string.match,
+      reverse = string.reverse,
+      next    = function(s, i) i = (i or 0) + 1; if i > #s then return nil end; return i, s:sub(i,i) end,
+    }
+  end
+end
+
+-- keep io.read patched permanently so PoB2's error dialog prompts never block on stdin
+-- our readline loop uses _real_io_read directly
 local _real_io_read = io.read
 io.read = function(...)
   return ""
@@ -12,9 +33,6 @@ end
 
 -- boot HeadlessWrapper (cwd = pob2/src/)
 dofile("HeadlessWrapper.lua")
-
--- restore io.read for our readline loop
-io.read = _real_io_read
 
 -- signal ready
 io.write(json.encode({ready = true}) .. "\n")
@@ -52,12 +70,98 @@ handlers["probe_output"] = function(_args)
   return {ok = true, data = keys}
 end
 
+handlers["probe_build"] = function(_args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local b = build
+  local sg = b.skillsTab and b.skillsTab.socketGroupList and b.skillsTab.socketGroupList[b.mainSocketGroup]
+  local skill = sg and sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
+  local calcs_skill = b.calcsTab and b.calcsTab.mainEnv and b.calcsTab.mainEnv.player and b.calcsTab.mainEnv.player.mainSkill
+  return {ok = true, data = {
+    characterLevel      = b.characterLevel,
+    spec_curClassName   = b.spec and b.spec.curClassName,
+    spec_curAscend      = b.spec and b.spec.curAscendClassName,
+    mainSocketGroup     = b.mainSocketGroup,
+    sg_exists           = sg ~= nil,
+    sg_mainActiveSkill  = sg and sg.mainActiveSkill,
+    skill_exists        = skill ~= nil,
+    skill_name          = skill and skill.activeEffect and skill.activeEffect.grantedEffect and skill.activeEffect.grantedEffect.name,
+    calcs_skill_name    = calcs_skill and calcs_skill.activeEffect and calcs_skill.activeEffect.grantedEffect and calcs_skill.activeEffect.grantedEffect.name,
+  }}
+end
+
+handlers["get_socket_groups"] = function(_args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local groups = {}
+  if build.skillsTab and build.skillsTab.socketGroupList then
+    for i, sg in ipairs(build.skillsTab.socketGroupList) do
+      local main_skill = sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
+      groups[#groups+1] = {
+        index               = i,
+        label               = sg.label,
+        enabled             = sg.enabled == true,
+        include_in_full_dps = sg.includeInFullDPS == true,
+        is_main             = i == build.mainSocketGroup,
+        slot                = sg.slot,
+        source              = sg.source,
+        main_skill_name     = main_skill and main_skill.activeEffect and main_skill.activeEffect.grantedEffect and main_skill.activeEffect.grantedEffect.name,
+        gem_count           = sg.gemList and #sg.gemList or 0,
+      }
+    end
+  end
+  return {ok = true, data = {groups = groups, main_socket_group = build.mainSocketGroup}}
+end
+
+-- toggle includeInFullDPS on one group, multiple groups, or all enabled
+handlers["set_full_dps_inclusion"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  if not (build and build.skillsTab and build.skillsTab.socketGroupList) then
+    return {ok = false, error = "socket group list unavailable"}
+  end
+  if args == nil or args.included == nil then
+    return {ok = false, error = "args.included (bool) required"}
+  end
+  local include = args.included and true or false
+  local list = build.skillsTab.socketGroupList
+  local touched = {}
+  if args.all_enabled then
+    for i, sg in ipairs(list) do
+      if sg.enabled then
+        sg.includeInFullDPS = include
+        touched[#touched+1] = i
+      end
+    end
+  elseif args.indices and type(args.indices) == "table" then
+    for _, raw in ipairs(args.indices) do
+      local i = tonumber(raw)
+      local sg = i and list[i] or nil
+      if not sg then return {ok = false, error = "no socket group at index " .. tostring(raw)} end
+      sg.includeInFullDPS = include
+      touched[#touched+1] = i
+    end
+  elseif args.index ~= nil then
+    local i = tonumber(args.index)
+    local sg = i and list[i] or nil
+    if not sg then return {ok = false, error = "no socket group at index " .. tostring(args.index)} end
+    sg.includeInFullDPS = include
+    touched[#touched+1] = i
+  else
+    return {ok = false, error = "provide one of: index, indices[], all_enabled"}
+  end
+  -- rebuild output so FullDPS / SkillDPS reflect the new flags
+  if build.calcsTab and build.calcsTab.BuildOutput then
+    build.buildFlag = true
+    pcall(function() build.calcsTab:BuildOutput() end)
+  end
+  return {ok = true, data = {touched_indices = touched, included = include}}
+end
+
+-- node side handles base64+zlib decode; this handler only sees raw XML
 handlers["load_build"] = function(args)
-  local code = args and args.code
-  if not code then
+  local xml = args and args.code
+  if not xml then
     return {ok = false, error = "args.code required"}
   end
-  local ok, err = pcall(loadBuildFromXML, code)
+  local ok, err = pcall(loadBuildFromXML, xml)
   if not ok then
     return {ok = false, error = tostring(err)}
   end
@@ -66,39 +170,55 @@ handlers["load_build"] = function(args)
   end
   loaded = true
   local b = build
+  local sg = b.skillsTab and b.skillsTab.socketGroupList and b.skillsTab.socketGroupList[b.mainSocketGroup]
+  local skill = sg and sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
   return {ok = true, data = {
-    class_name = b.data and b.data.className or "unknown",
-    ascendancy = b.data and b.data.ascendClassName or "none",
-    level      = b.data and b.data.level or 0,
-    main_skill = (b.skillsTab and b.skillsTab.mainSkill and
-                  b.skillsTab.mainSkill.activeEffect and
-                  b.skillsTab.mainSkill.activeEffect.grantedEffect and
-                  b.skillsTab.mainSkill.activeEffect.grantedEffect.name) or "unknown",
+    class_name  = (b.spec and b.spec.curClassName) or "unknown",
+    ascendancy  = (b.spec and b.spec.curAscendClassName) or "none",
+    level       = b.characterLevel or 0,
+    main_skill  = (skill and skill.activeEffect and skill.activeEffect.grantedEffect and skill.activeEffect.grantedEffect.name) or "unknown",
   }}
 end
 
 handlers["get_dps"] = function(_args)
   if not loaded then return {ok = false, error = "no build loaded"} end
   local out = get_output()
+  -- per-skill breakdown from SkillDPS array; PoB sorts by dps*count desc when displaying
+  local skills = {}
+  if type(out.SkillDPS) == "table" then
+    for _, s in ipairs(out.SkillDPS) do
+      local count = s.count or 1
+      local entry = {
+        name  = s.name or "?",
+        dps   = (s.dps or 0) * count,
+        count = count,
+      }
+      if s.trigger and s.trigger ~= "" then entry.trigger = s.trigger end
+      if s.source  and s.source  ~= "" then entry.source  = s.source end
+      if s.skillPart                  then entry.skill_part = s.skillPart end
+      skills[#skills+1] = entry
+    end
+    table.sort(skills, function(a, b) return a.dps > b.dps end)
+  end
   return {ok = true, data = {
-    full_dps   = safe_num(out, "TotalDPS"),
-    avg_hit    = safe_num(out, "AverageDamage"),
-    dot_dps    = safe_num(out, "TotalDotDPS"),
-    minion_dps = safe_num(out, "MinionDPS") + safe_num(out, "TotalMinionDPS"),
+    full_dps     = safe_num(out, "FullDPS"),       -- aggregate of all enabled damage skills
+    full_dot_dps = safe_num(out, "FullDotDPS"),
+    main_dps     = safe_num(out, "TotalDPS"),      -- main socket group only
+    main_avg_hit = safe_num(out, "AverageDamage"),
+    main_dot_dps = safe_num(out, "TotalDotDPS"),
+    minion_dps   = safe_num(out, "MinionDPS") + safe_num(out, "TotalMinionDPS"),
+    skills       = skills,
   }}
 end
 
 handlers["get_ehp"] = function(_args)
   if not loaded then return {ok = false, error = "no build loaded"} end
   local out = get_output()
-  local life = safe_num(out, "Life")
-  local es   = safe_num(out, "EnergyShield")
-  local ward = safe_num(out, "Ward")
   return {ok = true, data = {
-    life           = life,
-    es             = es,
-    ward           = ward,
-    total_ehp      = life + es + ward,
+    life           = safe_num(out, "Life"),
+    es             = safe_num(out, "EnergyShield"),
+    ward           = safe_num(out, "Ward"),
+    total_ehp      = safe_num(out, "TotalEHP"),
     armour         = safe_num(out, "Armour"),
     evasion        = safe_num(out, "Evasion"),
     block_chance   = safe_num(out, "BlockChance"),
@@ -164,8 +284,10 @@ handlers["get_tree_summary"] = function(_args)
   local spec = build.spec
   if not spec then return {ok = false, error = "no passive spec loaded"} end
   local keystones, notables = {}, {}
-  if spec.nodes then
-    for _, node in pairs(spec.nodes) do
+  local points_used = 0
+  if spec.allocNodes then
+    for _, node in pairs(spec.allocNodes) do
+      points_used = points_used + 1
       if node.isKeystone then
         keystones[#keystones+1] = node.name or "?"
       elseif node.isNotable then
@@ -174,15 +296,159 @@ handlers["get_tree_summary"] = function(_args)
     end
   end
   return {ok = true, data = {
-    points_used = spec.allocNodes and #spec.allocNodes or 0,
+    points_used = points_used,
     keystones   = keystones,
     notables    = notables,
   }}
 end
 
+local function node_type(node)
+  if node.isKeystone        then return "keystone" end
+  if node.isNotable         then return "notable" end
+  if node.isMastery         then return "mastery" end
+  if node.isJewelSocket or node.type == "Socket" then return "jewel_socket" end
+  if node.type == "ClassStart"      then return "class_start" end
+  if node.type == "AscendClassStart" then return "ascend_start" end
+  if node.ascendancyName    then return "ascendancy" end
+  return "normal"
+end
+
+local function count_alloc()
+  local n = 0
+  if build and build.spec and build.spec.allocNodes then
+    for _ in pairs(build.spec.allocNodes) do n = n + 1 end
+  end
+  return n
+end
+
+handlers["get_allocated_nodes"] = function(_args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local spec = build.spec
+  if not spec then return {ok = false, error = "no passive spec loaded"} end
+  local nodes = {}
+  if spec.allocNodes then
+    for id, node in pairs(spec.allocNodes) do
+      nodes[#nodes+1] = {
+        id         = id,
+        name       = node.name or "?",
+        type       = node_type(node),
+        ascendancy = node.ascendancyName,
+        stats      = node.sd, -- short description / stat lines
+      }
+    end
+  end
+  local used, asc_used = 0, 0
+  if spec.CountAllocNodes then
+    used, asc_used = spec:CountAllocNodes()
+  end
+  return {ok = true, data = {
+    points_used            = used,
+    ascendancy_points_used = asc_used,
+    nodes                  = nodes,
+  }}
+end
+
+handlers["allocate_node"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local id = args and tonumber(args.id)
+  if not id then return {ok = false, error = "args.id required (numeric)"} end
+  local node = build.spec.nodes[id]
+  if not node then return {ok = false, error = "node " .. id .. " not in tree"} end
+  if node.alloc or build.spec.allocNodes[id] then
+    return {ok = false, error = "node " .. id .. " already allocated"}
+  end
+  if not node.path then
+    return {ok = false, error = "node " .. id .. " not reachable from current allocation"}
+  end
+  local before = count_alloc()
+  local ok, err = pcall(function() build.spec:AllocNode(node) end)
+  if not ok then return {ok = false, error = "AllocNode failed: " .. tostring(err)} end
+  build.spec:BuildAllDependsAndPaths()
+  build.buildFlag = true
+  -- recalc directly; OnFrame's BuildOutput is the same path but goes via mode dispatch
+  pcall(function() build.calcsTab:BuildOutput() end)
+  local after = count_alloc()
+  return {ok = true, data = {
+    target_node  = {id = id, name = node.name, type = node_type(node)},
+    path_added   = after - before, -- nodes allocated along the path (incl. target)
+  }}
+end
+
+handlers["deallocate_node"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local id = args and tonumber(args.id)
+  if not id then return {ok = false, error = "args.id required (numeric)"} end
+  local node = build.spec.allocNodes[id]
+  if not node then return {ok = false, error = "node " .. id .. " is not allocated"} end
+  local before = count_alloc()
+  local ok, err = pcall(function() build.spec:DeallocNode(node) end)
+  if not ok then return {ok = false, error = "DeallocNode failed: " .. tostring(err)} end
+  build.buildFlag = true
+  pcall(function() build.calcsTab:BuildOutput() end)
+  local after = count_alloc()
+  return {ok = true, data = {
+    deallocated_node = {id = id, name = node.name, type = node_type(node)},
+    chain_removed    = before - after, -- target + any orphaned dependents
+  }}
+end
+
+-- wraps PoB's CalcsTab:PowerBuilder to score every unallocated node by stat delta
+handlers["analyze_tree"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local stat = args and args.objective_stat
+  if not stat or stat == "" then
+    return {ok = false, error = "args.objective_stat required (e.g. 'FullDPS', 'TotalEHP', 'Life')"}
+  end
+  local max_hops = args and tonumber(args.max_hops) or nil
+  local top_n    = args and tonumber(args.top_n) or 25
+
+  local ct = build.calcsTab
+  if not ct then return {ok = false, error = "calcsTab unavailable"} end
+  ct.powerStat         = {stat = stat}
+  ct.nodePowerMaxDepth = max_hops
+  ct.powerBuildFlag    = true
+
+  -- drive the coroutine to completion; PoB's UI yields ~every 100ms, we loop
+  local guard = 0
+  repeat
+    ct:BuildPower()
+    guard = guard + 1
+    if guard > 500 then break end
+  until ct.powerBuilder == nil
+
+  local candidates = {}
+  for id, node in pairs(build.spec.nodes) do
+    if not node.alloc and node.power
+       and node.power.pathPower and node.power.pathPower ~= 0
+       and (not max_hops or (node.pathDist and node.pathDist <= max_hops)) then
+      local dist = node.pathDist or 1
+      candidates[#candidates+1] = {
+        id              = id,
+        name            = node.name,
+        type            = node_type(node),
+        single_stat     = node.power.singleStat,
+        path_power      = node.power.pathPower,
+        path_dist       = dist,
+        power_per_point = dist > 0 and (node.power.pathPower / dist) or node.power.pathPower,
+      }
+    end
+  end
+  table.sort(candidates, function(a, b) return (a.path_power or 0) > (b.path_power or 0) end)
+  local top = {}
+  for i = 1, math.min(top_n, #candidates) do top[i] = candidates[i] end
+
+  return {ok = true, data = {
+    objective_stat   = stat,
+    max_hops         = max_hops,
+    iterations       = guard,
+    total_candidates = #candidates,
+    top              = top,
+  }}
+end
+
 -- readline loop
 while true do
-  local line = io.read("*l")
+  local line = _real_io_read("*l")
   if not line then break end
   line = line:match("^%s*(.-)%s*$")
   if line == "" then goto continue end

@@ -1,147 +1,166 @@
 // src/lua-bridge.ts
-import { spawn, type ChildProcess } from 'node:child_process';
-import path from 'node:path';
-import { platform } from 'node:os';
+import { spawn, type ChildProcess } from 'node:child_process'
+import path from 'node:path'
+import { platform } from 'node:os'
 
-const TIMEOUT_MS = 30_000;
-const LUAJIT_BIN = platform() === 'win32' ? 'luajit.exe' : 'luajit';
+const DEFAULT_TIMEOUT_MS = 30_000
+const LUAJIT_BIN = platform() === 'win32' ? 'luajit.exe' : 'luajit'
 
 interface BridgeCommand {
-  cmd: string;
-  args?: Record<string, unknown>;
+  cmd: string
+  args?: Record<string, unknown>
+  timeoutMs?: number // optional per-command override
 }
 
 interface BridgeResponse {
-  ok: boolean;
-  data?: unknown;
-  error?: string;
+  ok: boolean
+  data?: unknown
+  error?: string
 }
 
 interface Pending {
-  resolve: (r: BridgeResponse) => void;
-  reject: (e: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  resolve: (r: BridgeResponse) => void
+  reject: (e: Error) => void
+  timer: ReturnType<typeof setTimeout>
 }
 
 export class LuaBridge {
-  private proc: ChildProcess | null = null;
-  private pending = new Map<number, Pending>();
-  private buf = '';
-  private seq = 0;
-  private readyResolve: (() => void) | null = null;
-  private readyReject: ((e: Error) => void) | null = null;
+  private proc: ChildProcess | null = null
+  private pending = new Map<number, Pending>()
+  private buf = ''
+  private seq = 0
+  private readyResolve: (() => void) | null = null
+  private readyReject: ((e: Error) => void) | null = null
+  private pob2SrcDir: string
+  private shimPath: string
 
-  constructor(
-    private pob2SrcDir: string,
-    private shimPath: string,
-  ) {}
+  constructor(pob2SrcDir: string, shimPath: string) {
+    this.pob2SrcDir = pob2SrcDir
+    this.shimPath = shimPath
+  }
 
   async spawn(): Promise<void> {
+    const runtimeDir = path.join(this.pob2SrcDir, '..', 'runtime')
     const luaPath = [
-      path.join(this.pob2SrcDir, '..', 'runtime', 'lua', '?.lua').replace(/\\/g, '/'),
-      path.join(this.pob2SrcDir, '..', 'runtime', 'lua', 'sha1', 'init.lua').replace(/\\/g, '/'),
-    ].join(';');
+      path.join(runtimeDir, 'lua', '?.lua').replace(/\\/g, '/'),
+      path.join(runtimeDir, 'lua', '?', 'init.lua').replace(/\\/g, '/'),
+    ].join(';')
+    // native extensions (.so on Mac/Linux, .dll on Windows)
+    const ext = platform() === 'win32' ? 'dll' : 'so'
+    const luaCpath = [
+      path.join(runtimeDir, `?.${ext}`).replace(/\\/g, '/'),
+      path.join(runtimeDir, `loadall.${ext}`).replace(/\\/g, '/'),
+    ].join(';')
 
     this.proc = spawn(LUAJIT_BIN, [this.shimPath], {
       cwd: this.pob2SrcDir,
       shell: false,
-      env: { ...process.env, LUA_PATH: luaPath },
-    });
+      env: { ...process.env, LUA_PATH: luaPath, LUA_CPATH: luaCpath },
+    })
 
-    this.proc.stdout!.setEncoding('utf8');
-    this.proc.stderr!.setEncoding('utf8');
+    this.proc.stdout!.setEncoding('utf8')
+    this.proc.stderr!.setEncoding('utf8')
 
-    this.proc.stdout!.on('data', (chunk: string) => this.onData(chunk));
+    this.proc.stdout!.on('data', (chunk: string) => this.onData(chunk))
     this.proc.stderr!.on('data', (chunk: string) => {
-      process.stderr.write(`[luajit] ${chunk}`);
-    });
+      process.stderr.write(`[luajit] ${chunk}`)
+    })
     this.proc.on('exit', (code) => {
       if (code !== 0) {
-        this.rejectAll(new Error(`LuaJIT exited with code ${code}`));
+        this.rejectAll(new Error(`LuaJIT exited with code ${code}`))
       }
-    });
+    })
 
     return new Promise<void>((resolve, reject) => {
-      this.readyResolve = resolve;
-      this.readyReject = reject;
-      setTimeout(() => reject(new Error('LuaJIT ready timed out after 30s')), TIMEOUT_MS);
-    });
+      this.readyResolve = resolve
+      this.readyReject = reject
+      setTimeout(() => reject(new Error('LuaJIT ready timed out after 30s')), DEFAULT_TIMEOUT_MS)
+    })
   }
 
   private onData(chunk: string): void {
-    this.buf += chunk;
-    const lines = this.buf.split('\n');
-    this.buf = lines.pop() ?? '';
+    process.stderr.write(`[bridge:stdout raw] ${JSON.stringify(chunk)}\n`)
+    this.buf += chunk
+    const lines = this.buf.split('\n')
+    this.buf = lines.pop() ?? ''
     for (const line of lines) {
       if (!line.trim()) {
-        continue;
+        continue
       }
       try {
-        const msg = JSON.parse(line) as Record<string, unknown>;
+        const msg = JSON.parse(line) as Record<string, unknown>
         if (msg.ready === true) {
-          this.readyResolve?.();
-          this.readyResolve = null;
-          continue;
+          process.stderr.write('[bridge] ready signal received\n')
+          this.readyResolve?.()
+          this.readyResolve = null
+          continue
         }
-        const seq = msg.seq as number;
-        const p = this.pending.get(seq);
+        const seq = msg.seq as number
+        process.stderr.write(`[bridge] response seq=${seq} ok=${msg.ok}\n`)
+        const p = this.pending.get(seq)
         if (!p) {
-          continue;
+          process.stderr.write(`[bridge] no pending for seq=${seq}\n`)
+          continue
         }
-        clearTimeout(p.timer);
-        this.pending.delete(seq);
-        const { seq: _seq, ...rest } = msg;
-        const resp = rest as BridgeResponse;
+        clearTimeout(p.timer)
+        this.pending.delete(seq)
+        const { seq: _seq, ...rest } = msg
+        const resp = rest as unknown as BridgeResponse
         if (resp.ok) {
-          p.resolve(resp);
+          p.resolve(resp)
         } else {
-          p.reject(new Error(resp.error ?? 'unknown error from Lua'));
+          p.reject(new Error(resp.error ?? 'unknown error from Lua'))
         }
-      } catch {
-        // malformed line — ignore
+      } catch (e) {
+        process.stderr.write(`[bridge] json parse error on line: ${JSON.stringify(line)}: ${e}\n`)
       }
     }
   }
 
   async send(cmd: BridgeCommand): Promise<BridgeResponse> {
     if (!this.proc || this.proc.killed) {
-      throw new Error('LuaBridge: subprocess not running — call spawn() first');
+      throw new Error('LuaBridge: subprocess not running — call spawn() first')
     }
-    const seq = ++this.seq;
-    const payload = JSON.stringify({ seq, ...cmd }) + '\n';
+    const seq = ++this.seq
+    const { timeoutMs, ...wire } = cmd
+    const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS
+    const payload = JSON.stringify({ seq, ...wire }) + '\n'
+    process.stderr.write(`[bridge] send seq=${seq} cmd=${cmd.cmd} bytes=${payload.length} timeout=${timeout}\n`)
     return new Promise<BridgeResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(seq);
-        reject(new Error(`LuaBridge: command "${cmd.cmd}" timed out after ${TIMEOUT_MS}ms`));
-      }, TIMEOUT_MS);
-      this.pending.set(seq, { resolve, reject, timer });
-      this.proc!.stdin!.write(payload);
-    });
+        this.pending.delete(seq)
+        process.stderr.write(`[bridge] timeout seq=${seq} cmd=${cmd.cmd}\n`)
+        reject(new Error(`LuaBridge: command "${cmd.cmd}" timed out after ${timeout}ms`))
+      }, timeout)
+      this.pending.set(seq, { resolve, reject, timer })
+      const flushed = this.proc!.stdin!.write(payload)
+      process.stderr.write(`[bridge] stdin write flushed=${flushed}\n`)
+    })
   }
 
   private rejectAll(err: Error): void {
     for (const [, p] of this.pending) {
-      clearTimeout(p.timer);
-      p.reject(err);
+      clearTimeout(p.timer)
+      p.reject(err)
     }
-    this.pending.clear();
-    this.readyReject?.(err);
+    this.pending.clear()
+    this.readyReject?.(err)
   }
 
   async restart(pob2SrcDir?: string, shimPath?: string): Promise<void> {
-    this.kill();
+    this.kill()
     if (pob2SrcDir) {
-      this.pob2SrcDir = pob2SrcDir;
+      this.pob2SrcDir = pob2SrcDir
     }
     if (shimPath) {
-      this.shimPath = shimPath;
+      this.shimPath = shimPath
     }
-    await this.spawn();
+    await this.spawn()
   }
 
   kill(): void {
-    this.rejectAll(new Error('LuaBridge: killed'));
-    this.proc?.kill();
-    this.proc = null;
+    this.rejectAll(new Error('LuaBridge: killed'))
+    this.proc?.kill()
+    this.proc = null
   }
 }

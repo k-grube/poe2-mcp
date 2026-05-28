@@ -5,3 +5,13 @@ pob2/
 *.env.local
 *.js.map
 .DS_Store
+
+# decode-pob.ts output (regenerated from tests/test-build)
+tests/*.xml
+
+# this project uses npm; pnpm files are leftover and not authoritative
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
+# local planning notes
+docs/

@@ -1,0 +1,64 @@
+// src/tools/socket-groups.ts
+import { z } from 'zod'
+import type { LuaBridge } from '../lua-bridge.js'
+import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+
+export const getDefinition: Tool = {
+  name: 'get_socket_groups',
+  description:
+    'List all socket groups in the loaded build. Each entry has index (1-based), label, enabled, include_in_full_dps, is_main, slot, source, main_skill_name, gem_count. Also returns main_socket_group (index of the group `get_dps` uses for main_*). Call load_build first.',
+  inputSchema: { type: 'object' as const, properties: {}, required: [] },
+}
+
+export async function getHandler(bridge: LuaBridge, _args: unknown): Promise<CallToolResult> {
+  try {
+    const resp = await bridge.send({ cmd: 'get_socket_groups' })
+    return { content: [{ type: 'text', text: JSON.stringify(resp.data, null, 2) }] }
+  } catch (err) {
+    return {
+      content: [{ type: 'text', text: String(err instanceof Error ? err.message : err) }],
+      isError: true,
+    }
+  }
+}
+
+export const setFullDpsDefinition: Tool = {
+  name: 'set_full_dps_inclusion',
+  description:
+    'Toggle the includeInFullDPS flag on socket groups so they contribute to full_dps + skills[] in get_dps. PoB defaults this to false for every group; the in-app equivalent is right-click on a skill -> "Include in Full DPS". Provide one of: index (1-based), indices (array), or all_enabled (true to apply to every enabled group). included is the new boolean value. After this call, get_dps reflects the new aggregation.',
+  inputSchema: {
+    type: 'object' as const,
+    properties: {
+      index: { type: 'number', description: '1-based socket group index' },
+      indices: { type: 'array', items: { type: 'number' }, description: 'multiple 1-based indices' },
+      all_enabled: { type: 'boolean', description: 'apply to every enabled socket group' },
+      included: { type: 'boolean', description: 'new value for includeInFullDPS' },
+    },
+    required: ['included'],
+  },
+}
+
+const SetFullDpsInput = z
+  .object({
+    index: z.number().int().positive().optional(),
+    indices: z.array(z.number().int().positive()).optional(),
+    all_enabled: z.boolean().optional(),
+    included: z.boolean(),
+  })
+  .refine(
+    (v) => [v.index !== undefined, v.indices !== undefined, v.all_enabled === true].filter(Boolean).length === 1,
+    { message: 'provide exactly one of index, indices, or all_enabled=true' },
+  )
+
+export async function setFullDpsHandler(bridge: LuaBridge, args: unknown): Promise<CallToolResult> {
+  try {
+    const parsed = SetFullDpsInput.parse(args)
+    const resp = await bridge.send({ cmd: 'set_full_dps_inclusion', args: parsed })
+    return { content: [{ type: 'text', text: JSON.stringify(resp.data, null, 2) }] }
+  } catch (err) {
+    return {
+      content: [{ type: 'text', text: String(err instanceof Error ? err.message : err) }],
+      isError: true,
+    }
+  }
+}

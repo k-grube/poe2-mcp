@@ -1,0 +1,13 @@
+dist/
+build/
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+*.tsbuildinfo
+# vendored PoB source — don't touch
+pob2/
+# lua side has its own style
+lua/
+# binary/data fixtures
+tests/test-build
+tests/*.xml
