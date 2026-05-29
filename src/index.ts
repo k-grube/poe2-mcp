@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import { randomUUID } from 'node:crypto'
+import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
@@ -12,6 +13,7 @@ import { toolDefinitions, dispatchTool } from './tools/registry.js'
 import { searchEvents, getActiveJob } from './search-jobs.js'
 import { snapshotOf, sseLine } from './sse.js'
 import { createTreeLayoutHandler } from './tree-layout.js'
+import { dbg } from './debug.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SHIM_PATH = path.resolve(__dirname, '..', 'lua', 'pob-shim.lua')
@@ -74,7 +76,7 @@ async function main() {
 
   app.all('/mcp', async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined
-    process.stderr.write(
+    dbg(
       `[http] ${req.method} session=${sessionId?.slice(0, 8) ?? 'none'} body_keys=${req.body ? Object.keys(req.body).join(',') : 'empty'}\n`,
     )
 
@@ -94,22 +96,35 @@ async function main() {
       })
       await makeServer().connect(transport)
     } else {
-      process.stderr.write(`[http] 404 unknown session ${sessionId}\n`)
+      dbg(`[http] 404 unknown session ${sessionId}\n`)
       res.status(404).json({ error: 'session not found' })
       return
     }
 
-    process.stderr.write(`[http] -> handleRequest\n`)
+    dbg(`[http] -> handleRequest\n`)
     await transport.handleRequest(req, res, req.body)
-    process.stderr.write(`[http] <- handleRequest done\n`)
+    dbg(`[http] <- handleRequest done\n`)
   })
 
-  // serve the built viz bundle (Part 2); harmless 404 until web/dist exists
-  const webDist = path.resolve(__dirname, '..', 'web', 'dist')
-  app.use('/viz', express.static(webDist))
+  // viz at /viz: dev runs vite in middleware mode on this same server (hmr over
+  // the shared http server); prod serves the prebuilt bundle. detect by where we
+  // run from -> src/ under tsx (dev), dist/ under node (prod).
+  const server = http.createServer(app)
+  const isDev = path.basename(__dirname) === 'src'
+  if (isDev) {
+    const { createServer: createViteServer } = await import('vite')
+    const vite = await createViteServer({
+      configFile: path.resolve(__dirname, '..', 'vite.config.ts'),
+      server: { middlewareMode: true, hmr: { server } },
+      appType: 'spa',
+    })
+    app.use(vite.middlewares)
+  } else {
+    app.use('/viz', express.static(path.resolve(__dirname, '..', 'web', 'dist')))
+  }
 
-  const server = app.listen(PORT, () => {
-    console.log(`poe2-mcp listening on http://localhost:${PORT}/mcp`)
+  server.listen(PORT, () => {
+    console.log(`poe2-mcp listening on http://localhost:${PORT}/mcp${isDev ? ' (viz dev /viz)' : ''}`)
   })
   // crash loudly if the bind fails (EADDRINUSE etc) — silent failure causes
   // confusing "the server appears up but my requests hang" sessions when a
