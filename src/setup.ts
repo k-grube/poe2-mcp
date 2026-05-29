@@ -7,7 +7,7 @@ const execFile = promisify(execFileCb)
 
 const LUAJIT_INSTALL: Record<string, string> = {
   darwin: 'brew install luajit',
-  win32: 'scoop install luajit  (or: winget install LuaJIT)',
+  win32: 'winget install DEVCOM.LuaJIT',
   linux: 'sudo apt install luajit  (or: sudo pacman -S luajit)',
 }
 
@@ -28,7 +28,7 @@ async function main() {
   if (hasGit) {
     console.log('✓ git found')
   } else {
-    console.error('✗ git not found — install from https://git-scm.com/downloads')
+    console.error('✗ git not found: install from https://git-scm.com/downloads')
     ok = false
   }
 
@@ -38,7 +38,7 @@ async function main() {
     console.log('✓ luajit found')
   } else {
     const hint = LUAJIT_INSTALL[platform()] ?? 'install luajit for your platform'
-    console.error(`✗ luajit not found — run: ${hint}`)
+    console.error(`✗ luajit not found, run: ${hint}`)
     ok = false
   }
 
