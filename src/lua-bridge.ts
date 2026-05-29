@@ -53,30 +53,39 @@ export class LuaBridge {
       path.join(runtimeDir, `loadall.${ext}`).replace(/\\/g, '/'),
     ].join(';')
 
-    this.proc = spawn(LUAJIT_BIN, [this.shimPath], {
+    const proc = spawn(LUAJIT_BIN, [this.shimPath], {
       cwd: this.pob2SrcDir,
       shell: false,
       env: { ...process.env, LUA_PATH: luaPath, LUA_CPATH: luaCpath },
     })
+    this.proc = proc
 
-    this.proc.stdout!.setEncoding('utf8')
-    this.proc.stderr!.setEncoding('utf8')
+    proc.stdout!.setEncoding('utf8')
+    proc.stderr!.setEncoding('utf8')
 
-    this.proc.stdout!.on('data', (chunk: string) => this.onData(chunk))
-    this.proc.stderr!.on('data', (chunk: string) => {
+    proc.stdout!.on('data', (chunk: string) => this.onData(chunk))
+    proc.stderr!.on('data', (chunk: string) => {
       process.stderr.write(`[luajit] ${chunk}`)
     })
     // any exit (clean or not) invalidates the bridge: null out the handle so
     // subsequent send() fails fast instead of writing into a dead pipe and
-    // hanging until the per-cmd timeout fires.
-    this.proc.on('exit', (code, signal) => {
+    // hanging until the per-cmd timeout fires. guard on proc identity: a restart
+    // kills the old proc, whose exit fires async -- ignore it so it can't reject
+    // or null out the replacement bridge.
+    proc.on('exit', (code, signal) => {
+      if (this.proc !== proc) {
+        return
+      }
       process.stderr.write(`[bridge] luajit exited code=${code} signal=${signal}\n`)
       this.rejectAll(new Error(`LuaJIT exited (code=${code} signal=${signal})`))
       this.proc = null
     })
     // stdin EPIPE on writes to a dead pipe: surface immediately rather than
     // silently dropping the write.
-    this.proc.stdin!.on('error', (err) => {
+    proc.stdin!.on('error', (err) => {
+      if (this.proc !== proc) {
+        return
+      }
       process.stderr.write(`[bridge] stdin error: ${err.message}\n`)
       this.rejectAll(new Error(`bridge stdin error: ${err.message}`))
       this.proc = null
