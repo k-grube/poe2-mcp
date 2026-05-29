@@ -1,31 +1,26 @@
 import { z } from 'zod'
-import type { LuaBridge } from '../lua-bridge.js'
-import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { getJob } from '../search-jobs.js'
-
-export const definition: Tool = {
-  name: 'search_result',
-  description:
-    'Fetch the result of an async tree search by job_id. While running, returns status running (keep polling search_status). When done, returns the champion build (score, stats, node_ids, points_used), the initial baseline, and the full per-generation trajectory.',
-  inputSchema: { type: 'object' as const, properties: { job_id: { type: 'string' } }, required: ['job_id'] },
-}
+import { defineTool } from './define-tool.js'
 
 const InputSchema = z.object({ job_id: z.string().min(1) })
 
-export async function handler(_bridge: LuaBridge, args: unknown): Promise<CallToolResult> {
-  try {
+export const { definition, handler } = defineTool(
+  {
+    name: 'search_result',
+    description:
+      'Fetch the result of an async tree search by job_id. While running, returns status running (keep polling search_status). When done, returns the champion build (score, stats, node_ids, points_used), the initial baseline, and the full per-generation trajectory.',
+    inputSchema: { type: 'object' as const, properties: { job_id: { type: 'string' } }, required: ['job_id'] },
+  },
+  async (_bridge, args) => {
     const { job_id } = InputSchema.parse(args)
     const job = getJob(job_id)
     if (!job) {
-      return { content: [{ type: 'text', text: `unknown job_id: ${job_id}` }], isError: true }
+      throw new Error(`unknown job_id: ${job_id}`)
     }
     if (job.status === 'error') {
-      return {
-        content: [{ type: 'text', text: `search failed: ${job.error ?? 'unknown error'}` }],
-        isError: true,
-      }
+      throw new Error(`search failed: ${job.error ?? 'unknown error'}`)
     }
-    const body = {
+    return {
       job_id: job.id,
       status: job.status,
       initial: job.initial,
@@ -34,11 +29,5 @@ export async function handler(_bridge: LuaBridge, args: unknown): Promise<CallTo
       total_generations: job.totalGenerations,
       trajectory: job.trajectory,
     }
-    return { content: [{ type: 'text', text: JSON.stringify(body, null, 2) }] }
-  } catch (err) {
-    return {
-      content: [{ type: 'text', text: String(err instanceof Error ? err.message : err) }],
-      isError: true,
-    }
-  }
-}
+  },
+)
