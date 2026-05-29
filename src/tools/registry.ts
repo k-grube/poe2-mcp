@@ -26,7 +26,10 @@ import {
   resetDef,
   resetHandler,
 } from './tree-nodes.js'
-import { definition as searchDef, handler as searchHandler } from './search-tree.js'
+import { definition as searchStartDef, handler as searchStartHandler } from './search-start.js'
+import { definition as searchStatusDef, handler as searchStatusHandler } from './search-status.js'
+import { definition as searchResultDef, handler as searchResultHandler } from './search-result.js'
+import { definition as searchCancelDef, handler as searchCancelHandler } from './search-cancel.js'
 
 type Handler = (bridge: LuaBridge, args: unknown) => Promise<CallToolResult>
 
@@ -45,7 +48,10 @@ const entries: Array<{ definition: Tool; handler: Handler }> = [
   { definition: deallocateDef, handler: deallocateHandler },
   { definition: analyzeDef, handler: analyzeHandler },
   { definition: resetDef, handler: resetHandler },
-  { definition: searchDef, handler: searchHandler },
+  { definition: searchStartDef, handler: searchStartHandler },
+  { definition: searchStatusDef, handler: searchStatusHandler },
+  { definition: searchResultDef, handler: searchResultHandler },
+  { definition: searchCancelDef, handler: searchCancelHandler },
 ]
 
 export const toolDefinitions: Tool[] = entries.map((e) => e.definition)
