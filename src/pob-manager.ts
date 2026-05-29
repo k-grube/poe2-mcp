@@ -1,4 +1,4 @@
-import { execFile as execFileCb } from 'node:child_process'
+import { execFile as execFileCb, spawn } from 'node:child_process'
 import { access, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +11,22 @@ function execFile(cmd: string, args: string[]): Promise<{ stdout: string; stderr
         return
       }
       resolve({ stdout: String(stdout), stderr: String(stderr) })
+    })
+  })
+}
+
+// stream git progress on stderr so users see it during long clones/pulls
+// stdout is ignored, important when running inside an MCP server (stdout = JSON-RPC channel)
+function gitWithProgress(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', args, { stdio: ['ignore', 'ignore', 'inherit'] })
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve()
+      } else {
+        reject(new Error(`git ${args.join(' ')} exited with code ${code}`))
+      }
     })
   })
 }
@@ -66,7 +82,7 @@ export async function cloneOrPull(
 
   if (!exists) {
     await mkdir(dir, { recursive: true })
-    await execFile('git', ['clone', '--branch', branch, '--depth', '1', POB2_REPO, dir])
+    await gitWithProgress(['clone', '--branch', branch, '--depth', '1', '--progress', POB2_REPO, dir])
     const { stdout } = await execFile('git', ['-C', dir, 'rev-parse', '--short', 'HEAD'])
     return { action: 'cloned', head: stdout.trim() }
   }
@@ -77,7 +93,7 @@ export async function cloneOrPull(
     return { action: 'skipped', head: stdout.trim() }
   }
 
-  await execFile('git', ['-C', dir, 'pull'])
+  await gitWithProgress(['-C', dir, 'pull', '--progress'])
   const { stdout: newHead } = await execFile('git', ['-C', dir, 'rev-parse', '--short', 'HEAD'])
   return { action: 'pulled', head: newHead.trim() }
 }
