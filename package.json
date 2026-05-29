@@ -17,7 +17,9 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "prepare": "husky"
+    "prepare": "husky",
+    "build:web": "npm --prefix web run build",
+    "dev:web": "npm --prefix web run dev"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
@@ -42,7 +44,7 @@
     "vitest": "4.1.7"
   },
   "lint-staged": {
-    "*.{ts,js,cjs,mjs}": [
+    "*.{ts,tsx,js,jsx,cjs,mjs}": [
       "eslint --fix",
       "prettier --write"
     ],

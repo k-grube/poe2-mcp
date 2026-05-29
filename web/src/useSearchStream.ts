@@ -1,0 +1,118 @@
+import { useEffect, useReducer } from 'react'
+import type { Snapshot, StartEvent, GenEvent, EndEvent, Status, TrajectoryEntry } from './types.js'
+
+export interface ScorePoint {
+  generation: number
+  best: number
+  avg: number
+  champion: number
+  elapsed: number
+}
+
+export interface StreamState {
+  status: Status
+  jobId: string | null
+  generation: number
+  totalGenerations: number
+  scoreHistory: ScorePoint[]
+  championNodeIds: Set<number>
+  prevNodeIds: Set<number>
+  championStats: Record<string, number>
+  initial: { score: number; stats: Record<string, number> } | null
+  pointsUsed: number
+  error: string | null
+}
+
+export const initialState: StreamState = {
+  status: 'idle',
+  jobId: null,
+  generation: 0,
+  totalGenerations: 0,
+  scoreHistory: [],
+  championNodeIds: new Set(),
+  prevNodeIds: new Set(),
+  championStats: {},
+  initial: null,
+  pointsUsed: 0,
+  error: null,
+}
+
+type Action =
+  | { type: 'snapshot'; e: Snapshot }
+  | { type: 'start'; e: StartEvent }
+  | { type: 'gen'; e: GenEvent }
+  | { type: 'end'; e: EndEvent }
+
+const point = (t: TrajectoryEntry): ScorePoint => ({
+  generation: t.generation,
+  best: t.best_score,
+  avg: t.avg_score,
+  champion: t.champion_score,
+  elapsed: t.elapsed_s,
+})
+
+export function reduce(state: StreamState, action: Action): StreamState {
+  switch (action.type) {
+    case 'snapshot': {
+      const { e } = action
+      const last = e.trajectory[e.trajectory.length - 1]
+      return {
+        ...initialState,
+        status: e.status,
+        jobId: e.job_id,
+        totalGenerations: e.total_generations,
+        initial: e.initial,
+        scoreHistory: e.trajectory.map(point),
+        championNodeIds: new Set(e.champion_node_ids),
+        prevNodeIds: new Set(),
+        championStats: last?.champion_stats ?? {},
+        generation: last?.generation ?? 0,
+        pointsUsed: last?.points_used ?? 0,
+        error: e.error,
+      }
+    }
+    case 'start': {
+      const { e } = action
+      return {
+        ...initialState,
+        status: 'running',
+        jobId: e.job_id,
+        totalGenerations: e.total_generations,
+        initial: e.initial,
+      }
+    }
+    case 'gen': {
+      const { e } = action
+      return {
+        ...state,
+        status: 'running',
+        generation: e.generation,
+        scoreHistory: [...state.scoreHistory, point(e)],
+        prevNodeIds: state.championNodeIds,
+        championNodeIds: new Set(e.champion_node_ids),
+        championStats: e.champion_stats,
+        pointsUsed: e.points_used,
+      }
+    }
+    case 'end': {
+      const { e } = action
+      return { ...state, status: e.status, error: e.error }
+    }
+    default:
+      return state
+  }
+}
+
+// opens EventSource('/events'), reduces start|snapshot|gen|end; auto-reconnect is EventSource's
+export function useSearchStream(): StreamState {
+  const [state, dispatch] = useReducer(reduce, initialState)
+  useEffect(() => {
+    const es = new EventSource('/events')
+    es.addEventListener('snapshot', (ev) => dispatch({ type: 'snapshot', e: JSON.parse((ev as MessageEvent).data) }))
+    es.addEventListener('start', (ev) => dispatch({ type: 'start', e: JSON.parse((ev as MessageEvent).data) }))
+    es.addEventListener('gen', (ev) => dispatch({ type: 'gen', e: JSON.parse((ev as MessageEvent).data) }))
+    es.addEventListener('end', (ev) => dispatch({ type: 'end', e: JSON.parse((ev as MessageEvent).data) }))
+    return () => es.close()
+  }, [])
+  return state
+}

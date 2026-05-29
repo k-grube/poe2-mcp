@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import type { LuaBridge } from './lua-bridge.js'
 import type { SearchInput } from './tools/search-schema.js'
+import { searchEvents, type StartEvent, type GenEvent, type EndEvent } from './search-events.js'
+
+export { searchEvents }
+export type { StartEvent, GenEvent, EndEvent }
 
 export interface TrajectoryEntry {
   generation: number
@@ -8,6 +12,9 @@ export interface TrajectoryEntry {
   avg_score: number
   champion_score: number
   elapsed_s: number
+  champion_node_ids: number[]
+  champion_stats: Record<string, number>
+  points_used: number
 }
 
 export interface SearchBest {
@@ -83,6 +90,11 @@ export async function startSearch(bridge: LuaBridge, args: SearchInput): Promise
   }
   jobs.set(job.id, job)
   activeJob = job
+  searchEvents.emit('start', {
+    job_id: job.id,
+    total_generations: job.totalGenerations,
+    initial: job.initial!,
+  })
   void stepLoop(job, bridge)
   return job
 }
@@ -95,26 +107,56 @@ export async function stepLoop(job: SearchJob, bridge: LuaBridge): Promise<void>
       if (job.cancelRequested) {
         await bridge.send({ cmd: 'search_cancel' }).catch(() => {})
         job.status = 'cancelled'
+        searchEvents.emit('end', {
+          job_id: job.id,
+          status: 'cancelled',
+          best: job.best,
+          total_evals: job.totalEvals,
+          error: null,
+        })
         return
       }
       const resp = await bridge.send({ cmd: 'search_step', timeoutMs: STEP_TIMEOUT_MS })
       const d = resp.data as StepData
-      job.trajectory.push({
+      const entry: TrajectoryEntry = {
         generation: d.generation,
         best_score: d.best_score,
         avg_score: d.avg_score,
         champion_score: d.champion_score,
         elapsed_s: d.elapsed_s,
-      })
+        champion_node_ids: d.champion_node_ids,
+        champion_stats: d.champion_stats,
+        points_used: d.points_used,
+      }
+      job.trajectory.push(entry)
+      searchEvents.emit('gen', { job_id: job.id, status: 'running', ...entry })
       if (d.done) {
         job.best = d.best ?? null
         job.totalEvals = d.total_evals ?? null
         job.status = 'done'
+        searchEvents.emit('end', {
+          job_id: job.id,
+          status: 'done',
+          best: job.best,
+          total_evals: job.totalEvals,
+          error: null,
+        })
         return
       }
     }
   } catch (e) {
     job.status = 'error'
     job.error = e instanceof Error ? e.message : String(e)
+    searchEvents.emit('end', {
+      job_id: job.id,
+      status: 'error',
+      best: job.best,
+      total_evals: job.totalEvals,
+      error: job.error,
+    })
   }
+}
+
+export function getActiveJob(): SearchJob | null {
+  return activeJob
 }

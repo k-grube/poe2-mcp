@@ -348,6 +348,46 @@ handlers["get_allocated_nodes"] = function(_args)
   }}
 end
 
+handlers["get_tree_layout"] = function(_args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local spec = build.spec
+  if not (spec and spec.nodes) then return {ok = false, error = "no passive spec loaded"} end
+  local nodes, edges, seen = {}, {}, {}
+  local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+  for id, node in pairs(spec.nodes) do
+    if node.x and node.y then
+      nodes[#nodes+1] = {
+        id = id,
+        type = node_type(node),
+        x = node.x,
+        y = node.y,
+        name = node.name or "?",
+        ascendancy = node.ascendancyName,
+      }
+      if node.x < minX then minX = node.x end
+      if node.y < minY then minY = node.y end
+      if node.x > maxX then maxX = node.x end
+      if node.y > maxY then maxY = node.y end
+      if node.linkedId then
+        for _, other in ipairs(node.linkedId) do
+          local a, b = id, other
+          if a > b then a, b = b, a end
+          local key = a .. ":" .. b
+          if not seen[key] and spec.nodes[other] then
+            seen[key] = true
+            edges[#edges+1] = {a, b}
+          end
+        end
+      end
+    end
+  end
+  return {ok = true, data = {
+    nodes = nodes,
+    edges = edges,
+    bounds = {minX = minX, minY = minY, maxX = maxX, maxY = maxY},
+  }}
+end
+
 handlers["allocate_node"] = function(args)
   if not loaded then return {ok = false, error = "no build loaded"} end
   local id = args and tonumber(args.id)
@@ -1077,6 +1117,9 @@ handlers["search_step"] = function(_args)
     avg_score = entry.avg_score,
     champion_score = entry.champion_score,
     elapsed_s = entry.elapsed_s,
+    champion_node_ids = state.champion.node_ids,
+    champion_stats = state.champion.stats,
+    points_used = state.champion.points_used,
   }
   if state.gen >= state.generations then
     local result = ga.finalize(state)  -- restores champion to live build
