@@ -2,10 +2,14 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { TreeLayout } from './types.js'
 import { nodeRadius, nodeFill, GOLD, DIM } from './nodeStyle.js'
 
+// the ascendancy cluster sits far from the tree; its bridge edge spans the whole view
+const isAsc = (t: string) => t === 'ascendancy' || t === 'ascend_start'
+
 interface Props {
   layout: TreeLayout
   championNodeIds: Set<number>
   addedNodeIds: Set<number>
+  onHoverId: (id: number | null) => void
 }
 
 const BaseEdges = memo(function BaseEdges({ layout, alloc }: { layout: TreeLayout; alloc: Set<number> }) {
@@ -16,6 +20,10 @@ const BaseEdges = memo(function BaseEdges({ layout, alloc }: { layout: TreeLayou
         const na = byId.get(a)
         const nb = byId.get(b)
         if (!na || !nb) {
+          return null
+        }
+        // hide the bridge line between the main tree and the ascendancy cluster (still connected)
+        if (isAsc(na.type) !== isAsc(nb.type)) {
           return null
         }
         const lit = alloc.has(a) && alloc.has(b)
@@ -36,7 +44,7 @@ const BaseEdges = memo(function BaseEdges({ layout, alloc }: { layout: TreeLayou
   )
 })
 
-export function TreeCanvas({ layout, championNodeIds, addedNodeIds }: Props) {
+export function TreeCanvas({ layout, championNodeIds, addedNodeIds, onHoverId }: Props) {
   const { minX, minY, maxX, maxY } = layout.bounds
   const pad = 200
   const vbW = maxX - minX + pad * 2
@@ -85,7 +93,14 @@ export function TreeCanvas({ layout, championNodeIds, addedNodeIds }: Props) {
       style={{ display: 'block', background: '#0c0e12', cursor: drag.current ? 'grabbing' : 'grab' }}
       onMouseDown={(e) => (drag.current = { x: e.clientX, y: e.clientY, ox: pan.x, oy: pan.y })}
       onMouseUp={() => (drag.current = null)}
-      onMouseLeave={() => (drag.current = null)}
+      onMouseLeave={() => {
+        drag.current = null
+        onHoverId(null)
+      }}
+      onMouseOver={(e) => {
+        const id = (e.target as Element).getAttribute?.('data-node-id')
+        onHoverId(id ? Number(id) : null)
+      }}
       onMouseMove={(e) => {
         if (!drag.current || !svgRef.current) {
           return

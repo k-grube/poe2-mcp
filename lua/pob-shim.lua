@@ -363,6 +363,7 @@ handlers["get_tree_layout"] = function(_args)
         y = node.y,
         name = node.name or "?",
         ascendancy = node.ascendancyName,
+        stats = node.sd,
       }
       if node.x < minX then minX = node.x end
       if node.y < minY then minY = node.y end

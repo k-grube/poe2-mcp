@@ -15,6 +15,7 @@ export interface TreeNode {
   y: number
   name: string
   ascendancy?: string
+  stats?: string[]
 }
 
 export interface TreeLayout {
