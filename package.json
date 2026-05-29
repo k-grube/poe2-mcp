@@ -11,6 +11,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "setup": "tsx src/setup.ts",
+    "update-pob": "tsx scripts/update-pob.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:lua": "luajit scripts/ga-toy-test.lua",

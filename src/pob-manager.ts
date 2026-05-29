@@ -69,6 +69,7 @@ export async function needsPull(): Promise<boolean> {
 
 export async function cloneOrPull(
   branch = process.env.POB2_BRANCH ?? 'dev',
+  force = false,
 ): Promise<{ action: 'cloned' | 'pulled' | 'skipped'; head: string }> {
   const dir = getPob2Dir()
 
@@ -82,18 +83,20 @@ export async function cloneOrPull(
 
   if (!exists) {
     await mkdir(dir, { recursive: true })
-    await gitWithProgress(['clone', '--branch', branch, '--depth', '1', '--progress', POB2_REPO, dir])
+    await gitWithProgress(['clone', '--branch', branch, '--depth', '1', '--no-tags', '--progress', POB2_REPO, dir])
     const { stdout } = await execFile('git', ['-C', dir, 'rev-parse', '--short', 'HEAD'])
     return { action: 'cloned', head: stdout.trim() }
   }
 
-  const stale = await needsPull()
+  const stale = force || (await needsPull())
   if (!stale) {
     const { stdout } = await execFile('git', ['-C', dir, 'rev-parse', '--short', 'HEAD'])
     return { action: 'skipped', head: stdout.trim() }
   }
 
-  await gitWithProgress(['-C', dir, 'pull', '--progress'])
+  // shallow fetch + reset; a plain pull deepens the depth-1 clone to full history + all tags (~1gb)
+  await gitWithProgress(['-C', dir, 'fetch', '--depth', '1', '--no-tags', '--progress', 'origin', branch])
+  await gitWithProgress(['-C', dir, 'reset', '--hard', 'FETCH_HEAD'])
   const { stdout: newHead } = await execFile('git', ['-C', dir, 'rev-parse', '--short', 'HEAD'])
   return { action: 'pulled', head: newHead.trim() }
 }
