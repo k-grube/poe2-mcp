@@ -1,6 +1,16 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { LuaBridge } from '../src/lua-bridge.js'
-import { stepLoop, startSearch, getJob, requestCancel, type SearchJob } from '../src/search-jobs.js'
+import {
+  stepLoop,
+  startSearch,
+  getJob,
+  requestCancel,
+  searchEvents,
+  type SearchJob,
+  type StartEvent,
+  type GenEvent,
+  type EndEvent,
+} from '../src/search-jobs.js'
 
 function makeJob(overrides: Partial<SearchJob> = {}): SearchJob {
   return {
@@ -28,6 +38,9 @@ function stepResp(gen: number, done: boolean, extra: Record<string, unknown> = {
       avg_score: gen * 5,
       champion_score: gen * 10,
       elapsed_s: gen,
+      champion_node_ids: [gen],
+      champion_stats: { FullDPS: gen * 10 },
+      points_used: 100 + gen,
       ...extra,
     },
   }
@@ -100,5 +113,60 @@ describe('startSearch', () => {
     // let the background loop finish so vitest exits cleanly
     step.resolve(stepResp(1, true, { best: { score: 1, stats: {}, node_ids: [], points_used: 1 }, total_evals: 1 }))
     await vi.waitFor(() => expect(job.status).not.toBe('running'))
+  })
+})
+
+describe('search events', () => {
+  it('emits start -> gen* -> end with champion payloads', async () => {
+    const events: Array<['start', StartEvent] | ['gen', GenEvent] | ['end', EndEvent]> = []
+    const onStart = (e: StartEvent) => events.push(['start', e])
+    const onGen = (e: GenEvent) => events.push(['gen', e])
+    const onEnd = (e: EndEvent) => events.push(['end', e])
+    searchEvents.on('start', onStart)
+    searchEvents.on('gen', onGen)
+    searchEvents.on('end', onEnd)
+
+    const champ = (gen: number, done: boolean) => ({
+      ok: true,
+      data: {
+        done,
+        generation: gen,
+        best_score: gen * 10,
+        avg_score: gen * 5,
+        champion_score: gen * 10,
+        elapsed_s: gen,
+        champion_node_ids: [1, 2, gen],
+        champion_stats: { FullDPS: gen * 10 },
+        points_used: 100 + gen,
+        ...(done
+          ? { best: { score: 20, stats: { FullDPS: 20 }, node_ids: [1, 2], points_used: 102 }, total_evals: 9 }
+          : {}),
+      },
+    })
+    const send = vi.fn().mockImplementation((cmd: { cmd: string }) => {
+      if (cmd.cmd === 'search_start') {
+        return Promise.resolve({
+          ok: true,
+          data: { initial: { score: 5, stats: { FullDPS: 5 } }, total_generations: 2 },
+        })
+      }
+      return send.mock.calls.filter((c) => c[0].cmd === 'search_step').length === 1 ? champ(1, false) : champ(2, true)
+    })
+    const bridge = { send } as unknown as LuaBridge
+    const job = await startSearch(bridge, { objective: { stat: 'FullDPS' } })
+    await vi.waitFor(() => expect(job.status).toBe('done'))
+
+    expect(events.map((e) => e[0])).toEqual(['start', 'gen', 'gen', 'end'])
+    const gen1 = events.find((e) => e[0] === 'gen')![1] as GenEvent
+    expect(gen1.champion_node_ids).toEqual([1, 2, 1])
+    expect(gen1.champion_stats.FullDPS).toBe(10)
+    expect(gen1.points_used).toBe(101)
+    const end = events.find((e) => e[0] === 'end')![1] as EndEvent
+    expect(end.status).toBe('done')
+    expect(end.best?.score).toBe(20)
+
+    searchEvents.off('start', onStart)
+    searchEvents.off('gen', onGen)
+    searchEvents.off('end', onEnd)
   })
 })

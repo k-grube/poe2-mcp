@@ -2,6 +2,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import { platform } from 'node:os'
+import { dbg } from './debug.js'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 const LUAJIT_BIN = platform() === 'win32' ? 'luajit.exe' : 'luajit'
@@ -89,7 +90,7 @@ export class LuaBridge {
   }
 
   private onData(chunk: string): void {
-    process.stderr.write(`[bridge:stdout raw] ${JSON.stringify(chunk)}\n`)
+    dbg(`[bridge:stdout raw] ${JSON.stringify(chunk).slice(0, 120)}\n`)
     this.buf += chunk
     const lines = this.buf.split('\n')
     this.buf = lines.pop() ?? ''
@@ -100,16 +101,16 @@ export class LuaBridge {
       try {
         const msg = JSON.parse(line) as Record<string, unknown>
         if (msg.ready === true) {
-          process.stderr.write('[bridge] ready signal received\n')
+          dbg('[bridge] ready signal received\n')
           this.readyResolve?.()
           this.readyResolve = null
           continue
         }
         const seq = msg.seq as number
-        process.stderr.write(`[bridge] response seq=${seq} ok=${msg.ok}\n`)
+        dbg(`[bridge] response seq=${seq} ok=${msg.ok}\n`)
         const p = this.pending.get(seq)
         if (!p) {
-          process.stderr.write(`[bridge] no pending for seq=${seq}\n`)
+          dbg(`[bridge] no pending for seq=${seq}\n`)
           continue
         }
         clearTimeout(p.timer)
@@ -135,7 +136,7 @@ export class LuaBridge {
     const { timeoutMs, ...wire } = cmd
     const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS
     const payload = JSON.stringify({ seq, ...wire }) + '\n'
-    process.stderr.write(`[bridge] send seq=${seq} cmd=${cmd.cmd} bytes=${payload.length} timeout=${timeout}\n`)
+    dbg(`[bridge] send seq=${seq} cmd=${cmd.cmd} bytes=${payload.length} timeout=${timeout}\n`)
     return new Promise<BridgeResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(seq)
@@ -144,7 +145,7 @@ export class LuaBridge {
       }, timeout)
       this.pending.set(seq, { resolve, reject, timer })
       const flushed = this.proc!.stdin!.write(payload)
-      process.stderr.write(`[bridge] stdin write flushed=${flushed}\n`)
+      dbg(`[bridge] stdin write flushed=${flushed}\n`)
     })
   }
 

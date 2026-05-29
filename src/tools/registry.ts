@@ -1,5 +1,6 @@
 import type { LuaBridge } from '../lua-bridge.js'
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import { dbg } from '../debug.js'
 
 import { definition as loadBuildDef, handler as loadBuildHandler } from './load-build.js'
 import { definition as dpsDef, handler as dpsHandler } from './dps.js'
@@ -59,7 +60,7 @@ export const toolDefinitions: Tool[] = entries.map((e) => e.definition)
 const handlerMap = new Map<string, Handler>(entries.map((e) => [e.definition.name, e.handler]))
 
 export function dispatchTool(name: string, bridge: LuaBridge, args: unknown): Promise<CallToolResult> {
-  process.stderr.write(`[dispatch] tool=${name}\n`)
+  dbg(`[dispatch] tool=${name}\n`)
   const h = handlerMap.get(name)
   if (!h) {
     return Promise.resolve({
