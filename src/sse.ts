@@ -1,14 +1,7 @@
-import type { SearchJob, TrajectoryEntry } from './search-jobs.js'
+import type { SearchJob } from './search-jobs.js'
+import type { Snapshot } from './wire-types.js'
 
-export interface Snapshot {
-  status: 'idle' | 'running' | 'done' | 'error' | 'cancelled'
-  job_id: string | null
-  total_generations: number
-  initial: { score: number; stats: Record<string, number> } | null
-  trajectory: TrajectoryEntry[]
-  champion_node_ids: number[]
-  error: string | null
-}
+export type { Snapshot }
 
 // builds the connect-time snapshot so late-join / reconnect replays history then continues live
 export function snapshotOf(job: SearchJob | null): Snapshot {
