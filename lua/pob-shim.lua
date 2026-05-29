@@ -904,11 +904,13 @@ function ga.tournament_pick(pop, k)
   return best
 end
 
-handlers["search_tree_neighborhood"] = function(args)
-  if not loaded then return {ok = false, error = "no build loaded"} end
-  if not args or not args.objective then return {ok = false, error = "args.objective required"} end
+-- build a resumable search state: parse args, seed population, pick champion.
+-- returns (state) or (nil, error_string).
+function ga.init_state(args)
+  if not loaded then return nil, "no build loaded" end
+  if not args or not args.objective then return nil, "args.objective required" end
   local obj = args.objective
-  if not (obj.stat or obj.weights) then return {ok = false, error = "objective.stat or objective.weights required"} end
+  if not (obj.stat or obj.weights) then return nil, "objective.stat or objective.weights required" end
   local constraints = args.constraints
   local start_mode = args.start_mode or "current"
   local pop_size = tonumber(args.population_size) or 8
@@ -919,7 +921,6 @@ handlers["search_tree_neighborhood"] = function(args)
   local tournament_size = tonumber(args.tournament_size) or 3
   if args.seed then math.randomseed(args.seed) end
 
-  -- stat fields to capture in initial/best snapshots
   local stats_keys = {
     "FullDPS", "TotalEHP", "Life", "EnergyShield", "Ward", "Evasion", "Armour",
     "FireResist", "ColdResist", "LightningResist", "ChaosResist",
@@ -933,7 +934,6 @@ handlers["search_tree_neighborhood"] = function(args)
   if constraints and constraints.min then for k, _ in pairs(constraints.min) do add_key(k) end end
   if constraints and constraints.max then for k, _ in pairs(constraints.max) do add_key(k) end end
 
-  -- base state = either current build or freshly-reset build (per start_mode)
   if start_mode == "fresh" then
     pcall(function() build.spec:ResetNodes() end)
     build.spec:BuildAllDependsAndPaths()
@@ -943,101 +943,157 @@ handlers["search_tree_neighborhood"] = function(args)
   local point_budget = tonumber(args.point_budget) or search.pob_count()
   local initial_member = capture_member(stats_keys, obj, constraints)
 
-  local trajectory = {}
-  local t0 = os.time()
-  local total_evals = 0
-
   io.stderr:write(string.format(
     "[ga] start pop=%d gens=%d hc=%d budget=%d mode=%s initial_score=%.2f\n",
-    pop_size, generations, hc_depth, point_budget, start_mode, initial_member.score
-  ))
+    pop_size, generations, hc_depth, point_budget, start_mode, initial_member.score))
   io.stderr:flush()
 
-  -- seed population: 1 initial + N-1 random
   local pop = { initial_member }
   for i = 2, pop_size do
     local m = ga.random_build(point_budget, stats_keys, obj, constraints, base_xml)
-    total_evals = total_evals + 1
     pop[i] = m
-    io.stderr:write(string.format("[ga] init %d/%d score=%.0f pts=%d\n",
-      i, pop_size, m.score, m.points_used))
+    io.stderr:write(string.format("[ga] init %d/%d score=%.0f pts=%d\n", i, pop_size, m.score, m.points_used))
     io.stderr:flush()
   end
 
-  -- evolution loop
   local champion = pop[1]
   for _, m in ipairs(pop) do
     if m.score > champion.score then champion = m end
   end
 
-  for gen = 1, generations do
-    local gen_t0 = os.time()
-    table.sort(pop, function(a, b) return a.score > b.score end)
-    local new_pop = {}
-    for i = 1, elitism do new_pop[#new_pop+1] = pop[i] end
+  return {
+    obj = obj, constraints = constraints,
+    pop_size = pop_size, generations = generations, hc_depth = hc_depth,
+    elitism = elitism, crossover_rate = crossover_rate, tournament_size = tournament_size,
+    point_budget = point_budget, base_xml = base_xml, stats_keys = stats_keys,
+    initial_member = initial_member, pop = pop, champion = champion,
+    trajectory = {}, total_evals = pop_size - 1, gen = 0, t0 = os.time(), finished = false,
+  }
+end
 
-    while #new_pop < pop_size do
-      local p1 = ga.tournament_pick(pop, tournament_size)
-      local p2 = ga.tournament_pick(pop, tournament_size)
-      local child
-      if math.random() < crossover_rate then
-        child = ga.crossover(p1, p2, point_budget, stats_keys, obj, constraints, base_xml)
-        total_evals = total_evals + 1
-      else
-        -- copy parent
-        pcall(loadBuildFromXML, p1.xml)
-        search.rebuild()
-        child = capture_member(stats_keys, obj, constraints)
-        total_evals = total_evals + 1
-      end
-      child = ga.mutate(child, stats_keys, obj, constraints)
-      total_evals = total_evals + 1
-      child = ga.hill_climb(child, hc_depth, stats_keys, obj, constraints)
-      total_evals = total_evals + hc_depth
-      new_pop[#new_pop+1] = child
+-- run exactly one generation, mutating state. returns the trajectory entry.
+function ga.evolve_one(state)
+  state.gen = state.gen + 1
+  local gen = state.gen
+  local pop = state.pop
+  table.sort(pop, function(a, b) return a.score > b.score end)
+  local new_pop = {}
+  for i = 1, state.elitism do new_pop[#new_pop+1] = pop[i] end
+
+  while #new_pop < state.pop_size do
+    local p1 = ga.tournament_pick(pop, state.tournament_size)
+    local p2 = ga.tournament_pick(pop, state.tournament_size)
+    local child
+    if math.random() < state.crossover_rate then
+      child = ga.crossover(p1, p2, state.point_budget, state.stats_keys, state.obj, state.constraints, state.base_xml)
+      state.total_evals = state.total_evals + 1
+    else
+      pcall(loadBuildFromXML, p1.xml)
+      search.rebuild()
+      child = capture_member(state.stats_keys, state.obj, state.constraints)
+      state.total_evals = state.total_evals + 1
     end
-    pop = new_pop
-
-    local gen_best, gen_avg = -math.huge, 0
-    for _, m in ipairs(pop) do
-      if m.score > gen_best then gen_best = m.score end
-      gen_avg = gen_avg + (m.score == -math.huge and 0 or m.score)
-      if m.score > champion.score then champion = m end
-    end
-    gen_avg = gen_avg / pop_size
-
-    trajectory[#trajectory+1] = {
-      generation = gen,
-      best_score = gen_best,
-      avg_score = gen_avg,
-      champion_score = champion.score,
-      elapsed_s = os.time() - t0,
-    }
-    io.stderr:write(string.format("[ga] gen=%d best=%.0f avg=%.0f champion=%.0f dt=%ds\n",
-      gen, gen_best, gen_avg, champion.score, os.time() - gen_t0))
-    io.stderr:flush()
+    child = ga.mutate(child, state.stats_keys, state.obj, state.constraints)
+    state.total_evals = state.total_evals + 1
+    child = ga.hill_climb(child, state.hc_depth, state.stats_keys, state.obj, state.constraints)
+    state.total_evals = state.total_evals + state.hc_depth
+    new_pop[#new_pop+1] = child
   end
+  state.pop = new_pop
 
-  -- restore champion to live build state
-  pcall(loadBuildFromXML, champion.xml)
-  search.rebuild()
+  local gen_best, gen_avg = -math.huge, 0
+  for _, m in ipairs(new_pop) do
+    if m.score > gen_best then gen_best = m.score end
+    gen_avg = gen_avg + (m.score == -math.huge and 0 or m.score)
+    if m.score > state.champion.score then state.champion = m end
+  end
+  gen_avg = gen_avg / state.pop_size
 
-  io.stderr:write(string.format("[ga] done evals=%d initial=%.2f best=%.2f elapsed=%ds\n",
-    total_evals, initial_member.score, champion.score, os.time() - t0))
+  local entry = {
+    generation = gen,
+    best_score = gen_best,
+    avg_score = gen_avg,
+    champion_score = state.champion.score,
+    elapsed_s = os.time() - state.t0,
+  }
+  state.trajectory[#state.trajectory+1] = entry
+  io.stderr:write(string.format("[ga] gen=%d best=%.0f avg=%.0f champion=%.0f elapsed=%ds\n",
+    gen, gen_best, gen_avg, state.champion.score, entry.elapsed_s))
   io.stderr:flush()
+  return entry
+end
 
-  return {ok = true, data = {
+-- restore champion to live build and return the result block.
+function ga.finalize(state)
+  search.restore(state.champion.xml)
+  io.stderr:write(string.format("[ga] done evals=%d initial=%.2f best=%.2f elapsed=%ds\n",
+    state.total_evals, state.initial_member.score, state.champion.score, os.time() - state.t0))
+  io.stderr:flush()
+  return {
     best = {
-      score = champion.score,
-      stats = champion.stats,
-      node_ids = champion.node_ids,
-      points_used = champion.points_used,
+      score = state.champion.score,
+      stats = state.champion.stats,
+      node_ids = state.champion.node_ids,
+      points_used = state.champion.points_used,
     },
-    initial = { score = initial_member.score, stats = initial_member.stats },
-    trajectory = trajectory,
-    total_evals = total_evals,
-    elapsed_s = os.time() - t0,
+    initial = { score = state.initial_member.score, stats = state.initial_member.stats },
+    trajectory = state.trajectory,
+    total_evals = state.total_evals,
+    elapsed_s = os.time() - state.t0,
+  }
+end
+
+handlers["search_tree_neighborhood"] = function(args)
+  local state, err = ga.init_state(args)
+  if not state then return {ok = false, error = err} end
+  for _ = 1, state.generations do ga.evolve_one(state) end
+  return {ok = true, data = ga.finalize(state)}
+end
+
+-- one active resumable search at a time (one live build state)
+local active_search = nil
+
+handlers["search_start"] = function(args)
+  local state, err = ga.init_state(args)
+  if not state then return {ok = false, error = err} end
+  active_search = state
+  return {ok = true, data = {
+    initial = { score = state.initial_member.score, stats = state.initial_member.stats },
+    total_generations = state.generations,
+    point_budget = state.point_budget,
   }}
+end
+
+handlers["search_step"] = function(_args)
+  local state = active_search
+  if not state then return {ok = false, error = "no active search; call search_start first"} end
+  if state.finished then return {ok = false, error = "search already finished; call search_result"} end
+
+  local entry = ga.evolve_one(state)
+  local data = {
+    done = false,
+    generation = entry.generation,
+    best_score = entry.best_score,
+    avg_score = entry.avg_score,
+    champion_score = entry.champion_score,
+    elapsed_s = entry.elapsed_s,
+  }
+  if state.gen >= state.generations then
+    local result = ga.finalize(state)  -- restores champion to live build
+    state.finished = true
+    data.done = true
+    data.best = result.best
+    data.initial = result.initial
+    data.total_evals = result.total_evals
+  else
+    search.restore(state.champion.xml)  -- keep live build coherent between steps
+  end
+  return {ok = true, data = data}
+end
+
+handlers["search_cancel"] = function(_args)
+  active_search = nil
+  return {ok = true, data = {cancelled = true}}
 end
 
 -- readline loop
