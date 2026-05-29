@@ -13,6 +13,7 @@
     "setup": "tsx src/setup.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:lua": "luajit scripts/ga-toy-test.lua",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",

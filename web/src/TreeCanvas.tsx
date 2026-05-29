@@ -1,11 +1,13 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useMemo, useRef } from 'react'
 import type { TreeLayout } from './types.js'
 import { nodeRadius, nodeFill, GOLD, DIM } from './nodeStyle.js'
+import { usePanZoom } from './usePanZoom.js'
 
 interface Props {
   layout: TreeLayout
   championNodeIds: Set<number>
   addedNodeIds: Set<number>
+  onHoverId: (id: number | null) => void
 }
 
 const BaseEdges = memo(function BaseEdges({ layout, alloc }: { layout: TreeLayout; alloc: Set<number> }) {
@@ -18,6 +20,12 @@ const BaseEdges = memo(function BaseEdges({ layout, alloc }: { layout: TreeLayou
         if (!na || !nb) {
           return null
         }
+        // hide only the bridge between the main tree and an ascendancy cluster (still
+        // connected). cluster membership is the `ascendancy` field, not type -- ascendancy
+        // notables are typed 'notable', so a type test would wrongly hide their edges.
+        if (Boolean(na.ascendancy) !== Boolean(nb.ascendancy)) {
+          return null
+        }
         const lit = alloc.has(a) && alloc.has(b)
         return (
           <line
@@ -27,8 +35,8 @@ const BaseEdges = memo(function BaseEdges({ layout, alloc }: { layout: TreeLayou
             x2={nb.x}
             y2={nb.y}
             stroke={lit ? GOLD : DIM}
-            strokeWidth={lit ? 6 : 2}
-            opacity={lit ? 0.9 : 0.35}
+            strokeWidth={lit ? 18 : 10}
+            opacity={lit ? 1 : 0.6}
           />
         )
       })}
@@ -36,45 +44,14 @@ const BaseEdges = memo(function BaseEdges({ layout, alloc }: { layout: TreeLayou
   )
 })
 
-export function TreeCanvas({ layout, championNodeIds, addedNodeIds }: Props) {
+export function TreeCanvas({ layout, championNodeIds, addedNodeIds, onHoverId }: Props) {
   const { minX, minY, maxX, maxY } = layout.bounds
   const pad = 200
   const vbW = maxX - minX + pad * 2
   const vbH = maxY - minY + pad * 2
   const vb = `${minX - pad} ${minY - pad} ${vbW} ${vbH}`
   const svgRef = useRef<SVGSVGElement>(null)
-  const [zoom, setZoom] = useState(1)
-  const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
-
-  // latest view for the once-attached wheel listener to read (avoids stale closure)
-  const view = useRef({ zoom, pan })
-  view.current = { zoom, pan }
-
-  // native non-passive wheel listener: react attaches onWheel as passive, so a
-  // preventDefault there is a no-op and the page scrolls instead of zooming.
-  // zoom anchors on the cursor: the point under the pointer stays fixed.
-  useEffect(() => {
-    const el = svgRef.current
-    if (!el) {
-      return
-    }
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault()
-      const ctm = el.getScreenCTM()
-      if (!ctm) {
-        return
-      }
-      const cur = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse())
-      const { zoom: z0, pan: p0 } = view.current
-      const z1 = Math.min(6, Math.max(0.3, z0 * (e.deltaY < 0 ? 1.1 : 0.9)))
-      const k = z1 / z0
-      setZoom(z1)
-      setPan({ x: cur.x - k * (cur.x - p0.x), y: cur.y - k * (cur.y - p0.y) })
-    }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  }, [])
+  const { transform, onMouseDown, onMouseMove, onMouseUp, endDrag } = usePanZoom(svgRef, vbW, vbH)
 
   return (
     <svg
@@ -82,24 +59,20 @@ export function TreeCanvas({ layout, championNodeIds, addedNodeIds }: Props) {
       width="100%"
       height="100%"
       viewBox={vb}
-      style={{ display: 'block', background: '#0c0e12', cursor: drag.current ? 'grabbing' : 'grab' }}
-      onMouseDown={(e) => (drag.current = { x: e.clientX, y: e.clientY, ox: pan.x, oy: pan.y })}
-      onMouseUp={() => (drag.current = null)}
-      onMouseLeave={() => (drag.current = null)}
-      onMouseMove={(e) => {
-        if (!drag.current || !svgRef.current) {
-          return
-        }
-        // mouse delta is screen px; convert to viewBox user units so pan tracks the cursor 1:1
-        const rect = svgRef.current.getBoundingClientRect()
-        const unitsPerPx = Math.max(vbW / rect.width, vbH / rect.height)
-        setPan({
-          x: drag.current.ox + (e.clientX - drag.current.x) * unitsPerPx,
-          y: drag.current.oy + (e.clientY - drag.current.y) * unitsPerPx,
-        })
+      style={{ display: 'block', background: '#0c0e12', cursor: 'grab' }}
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onMouseLeave={() => {
+        endDrag()
+        onHoverId(null)
+      }}
+      onMouseOver={(e) => {
+        const id = (e.target as Element).getAttribute?.('data-node-id')
+        onHoverId(id ? Number(id) : null)
       }}
     >
-      <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
+      <g transform={transform}>
         <BaseEdges layout={layout} alloc={championNodeIds} />
         {layout.nodes.map((n) => {
           const allocated = championNodeIds.has(n.id)

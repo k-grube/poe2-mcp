@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import type { TreeNode } from './types.js'
 import { useTreeLayout } from './useTreeLayout.js'
 import { useSearchStream } from './useSearchStream.js'
 import { diffNodeIds } from './nodeStyle.js'
@@ -8,6 +9,8 @@ import { Hud } from './Hud.js'
 export function App() {
   const { layout, error } = useTreeLayout()
   const stream = useSearchStream()
+  const [hover, setHover] = useState<TreeNode | null>(null)
+  const byId = useMemo(() => new Map((layout?.nodes ?? []).map((n) => [n.id, n])), [layout])
   const added = useMemo(
     () => diffNodeIds(stream.prevNodeIds, stream.championNodeIds).added,
     [stream.prevNodeIds, stream.championNodeIds],
@@ -27,8 +30,13 @@ export function App() {
   }
   return (
     <div style={{ position: 'fixed', inset: 0 }}>
-      <TreeCanvas layout={layout} championNodeIds={stream.championNodeIds} addedNodeIds={added} />
-      <Hud state={stream} />
+      <TreeCanvas
+        layout={layout}
+        championNodeIds={stream.championNodeIds}
+        addedNodeIds={added}
+        onHoverId={(id) => setHover(id === null ? null : (byId.get(id) ?? null))}
+      />
+      <Hud state={stream} hover={hover} />
     </div>
   )
 }

@@ -6,31 +6,37 @@ export interface LayoutState {
   error: string | null
 }
 
-// fetches /api/tree-layout once; 409 surfaces as a user-facing error
+// fetches /api/tree-layout, polling until it succeeds. the server 409s until a
+// build is loaded (and during dev restarts), so we wait rather than hard-erroring.
 export function useTreeLayout(): LayoutState {
   const [state, setState] = useState<LayoutState>({ layout: null, error: null })
   useEffect(() => {
     let cancelled = false
-    fetch('/api/tree-layout')
-      .then(async (r) => {
-        if (!r.ok) {
-          const body = (await r.json().catch(() => ({}))) as { error?: string }
-          throw new Error(body.error ?? `tree-layout ${r.status}`)
-        }
-        return r.json() as Promise<TreeLayout>
-      })
-      .then((layout) => {
-        if (!cancelled) {
-          setState({ layout, error: null })
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setState({ layout: null, error: err instanceof Error ? err.message : String(err) })
-        }
-      })
+    let timer: ReturnType<typeof setTimeout>
+    const attempt = () => {
+      fetch('/api/tree-layout')
+        .then((r) => {
+          if (!r.ok) {
+            throw new Error(`tree-layout ${r.status}`)
+          }
+          return r.json() as Promise<TreeLayout>
+        })
+        .then((layout) => {
+          if (!cancelled) {
+            setState({ layout, error: null })
+          }
+        })
+        .catch(() => {
+          // no build loaded yet, or server restarting -> keep waiting
+          if (!cancelled) {
+            timer = setTimeout(attempt, 2000)
+          }
+        })
+    }
+    attempt()
     return () => {
       cancelled = true
+      clearTimeout(timer)
     }
   }, [])
   return state

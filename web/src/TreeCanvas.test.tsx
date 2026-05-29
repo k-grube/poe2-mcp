@@ -19,7 +19,7 @@ const layout: TreeLayout = {
 describe('TreeCanvas', () => {
   it('renders a node element per layout node and marks allocated gold', () => {
     const { container } = render(
-      <TreeCanvas layout={layout} championNodeIds={new Set([2])} addedNodeIds={new Set([2])} />,
+      <TreeCanvas layout={layout} championNodeIds={new Set([2])} addedNodeIds={new Set([2])} onHoverId={() => {}} />,
     )
     const nodes = container.querySelectorAll('[data-node-id]')
     expect(nodes).toHaveLength(3)

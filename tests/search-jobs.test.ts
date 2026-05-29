@@ -5,6 +5,7 @@ import {
   startSearch,
   getJob,
   requestCancel,
+  computeStepTransition,
   searchEvents,
   type SearchJob,
   type StartEvent,
@@ -168,5 +169,61 @@ describe('search events', () => {
     searchEvents.off('start', onStart)
     searchEvents.off('gen', onGen)
     searchEvents.off('end', onEnd)
+  })
+})
+
+describe('computeStepTransition', () => {
+  const data = (gen: number, done: boolean, extra: Record<string, unknown> = {}) => ({
+    done,
+    generation: gen,
+    best_score: gen * 10,
+    avg_score: gen * 5,
+    champion_score: gen * 10,
+    elapsed_s: gen,
+    champion_node_ids: [gen],
+    champion_stats: { FullDPS: gen * 10 },
+    points_used: 100 + gen,
+    ...extra,
+  })
+
+  it('continue: a non-final step yields an entry + gen event, no end, keep going', () => {
+    const t = computeStepTransition(makeJob(), { type: 'step', data: data(1, false) })
+    expect(t.done).toBe(false)
+    expect(t.trajectoryEntry?.generation).toBe(1)
+    expect(t.genEvent?.status).toBe('running')
+    expect(t.endEvent).toBeNull()
+    expect(t.patch).toEqual({})
+  })
+
+  it('done: final step patches status/best/totalEvals and emits gen + end', () => {
+    const t = computeStepTransition(makeJob(), {
+      type: 'step',
+      data: data(2, true, { best: { score: 20, stats: {}, node_ids: [1], points_used: 5 }, total_evals: 42 }),
+    })
+    expect(t.done).toBe(true)
+    expect(t.patch.status).toBe('done')
+    expect(t.patch.best?.score).toBe(20)
+    expect(t.patch.totalEvals).toBe(42)
+    expect(t.endEvent?.status).toBe('done')
+    expect(t.endEvent?.best?.score).toBe(20)
+  })
+
+  it('cancel: ends cancelled, no entry, keeps best-so-far', () => {
+    const job = makeJob({ best: { score: 7, stats: {}, node_ids: [], points_used: 3 }, totalEvals: 9 })
+    const t = computeStepTransition(job, { type: 'cancel' })
+    expect(t.done).toBe(true)
+    expect(t.trajectoryEntry).toBeNull()
+    expect(t.patch.status).toBe('cancelled')
+    expect(t.endEvent?.status).toBe('cancelled')
+    expect(t.endEvent?.best?.score).toBe(7)
+  })
+
+  it('error: ends error with the message on both patch and event', () => {
+    const t = computeStepTransition(makeJob(), { type: 'error', message: 'LuaJIT exited' })
+    expect(t.done).toBe(true)
+    expect(t.patch.status).toBe('error')
+    expect(t.patch.error).toBe('LuaJIT exited')
+    expect(t.endEvent?.status).toBe('error')
+    expect(t.endEvent?.error).toBe('LuaJIT exited')
   })
 })

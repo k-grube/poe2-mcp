@@ -19,20 +19,20 @@ export function diffNodeIds(prev: Set<number>, cur: Set<number>): { added: Set<n
 export function nodeRadius(type: NodeType): number {
   switch (type) {
     case 'keystone':
-      return 28
+      return 58
     case 'notable':
     case 'mastery':
-      return 18
+      return 48
     case 'jewel_socket':
-      return 14
+      return 44
     case 'class_start':
-      return 22
+      return 42
     case 'ascend_start':
-      return 16
+      return 36
     case 'ascendancy':
-      return 12
+      return 32
     default:
-      return 8
+      return 28
   }
 }
 

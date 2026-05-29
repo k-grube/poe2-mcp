@@ -1,28 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import type { LuaBridge } from './lua-bridge.js'
 import type { SearchInput } from './tools/search-schema.js'
+import type { TrajectoryEntry, SearchBest } from './wire-types.js'
 import { searchEvents, type StartEvent, type GenEvent, type EndEvent } from './search-events.js'
 
 export { searchEvents }
 export type { StartEvent, GenEvent, EndEvent }
-
-export interface TrajectoryEntry {
-  generation: number
-  best_score: number
-  avg_score: number
-  champion_score: number
-  elapsed_s: number
-  champion_node_ids: number[]
-  champion_stats: Record<string, number>
-  points_used: number
-}
-
-export interface SearchBest {
-  score: number
-  stats: Record<string, number>
-  node_ids: number[]
-  points_used: number
-}
+export type { TrajectoryEntry, SearchBest }
 
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled'
 
@@ -99,61 +83,99 @@ export async function startSearch(bridge: LuaBridge, args: SearchInput): Promise
   return job
 }
 
-// drives search_step until done/cancel/error, updating the job in place.
-// detached from any HTTP request so the search survives client disconnect.
-export async function stepLoop(job: SearchJob, bridge: LuaBridge): Promise<void> {
-  try {
-    for (;;) {
-      if (job.cancelRequested) {
-        await bridge.send({ cmd: 'search_cancel' }).catch(() => {})
-        job.status = 'cancelled'
-        searchEvents.emit('end', {
-          job_id: job.id,
-          status: 'cancelled',
-          best: job.best,
-          total_evals: job.totalEvals,
-          error: null,
-        })
-        return
-      }
-      const resp = await bridge.send({ cmd: 'search_step', timeoutMs: STEP_TIMEOUT_MS })
-      const d = resp.data as StepData
-      const entry: TrajectoryEntry = {
-        generation: d.generation,
-        best_score: d.best_score,
-        avg_score: d.avg_score,
-        champion_score: d.champion_score,
-        elapsed_s: d.elapsed_s,
-        champion_node_ids: d.champion_node_ids,
-        champion_stats: d.champion_stats,
-        points_used: d.points_used,
-      }
-      job.trajectory.push(entry)
-      searchEvents.emit('gen', { job_id: job.id, status: 'running', ...entry })
-      if (d.done) {
-        job.best = d.best ?? null
-        job.totalEvals = d.total_evals ?? null
-        job.status = 'done'
-        searchEvents.emit('end', {
-          job_id: job.id,
-          status: 'done',
-          best: job.best,
-          total_evals: job.totalEvals,
-          error: null,
-        })
-        return
-      }
+export type StepInput = { type: 'step'; data: StepData } | { type: 'cancel' } | { type: 'error'; message: string }
+
+export interface StepTransition {
+  trajectoryEntry: TrajectoryEntry | null
+  patch: Partial<SearchJob>
+  genEvent: GenEvent | null
+  endEvent: EndEvent | null
+  done: boolean
+}
+
+// pure: given the current job and one step outcome, decide the trajectory entry to
+// push, the job fields to patch, the events to emit, and whether to stop. no I/O,
+// so every transition (continue / done / cancelled / error) is unit-testable.
+export function computeStepTransition(job: SearchJob, input: StepInput): StepTransition {
+  if (input.type === 'cancel') {
+    return {
+      trajectoryEntry: null,
+      patch: { status: 'cancelled' },
+      genEvent: null,
+      endEvent: { job_id: job.id, status: 'cancelled', best: job.best, total_evals: job.totalEvals, error: null },
+      done: true,
     }
-  } catch (e) {
-    job.status = 'error'
-    job.error = e instanceof Error ? e.message : String(e)
-    searchEvents.emit('end', {
-      job_id: job.id,
-      status: 'error',
-      best: job.best,
-      total_evals: job.totalEvals,
-      error: job.error,
-    })
+  }
+  if (input.type === 'error') {
+    return {
+      trajectoryEntry: null,
+      patch: { status: 'error', error: input.message },
+      genEvent: null,
+      endEvent: { job_id: job.id, status: 'error', best: job.best, total_evals: job.totalEvals, error: input.message },
+      done: true,
+    }
+  }
+  const d = input.data
+  const entry: TrajectoryEntry = {
+    generation: d.generation,
+    best_score: d.best_score,
+    avg_score: d.avg_score,
+    champion_score: d.champion_score,
+    elapsed_s: d.elapsed_s,
+    champion_node_ids: d.champion_node_ids,
+    champion_stats: d.champion_stats,
+    points_used: d.points_used,
+  }
+  const genEvent: GenEvent = { job_id: job.id, status: 'running', ...entry }
+  if (d.done) {
+    const best = d.best ?? null
+    const totalEvals = d.total_evals ?? null
+    return {
+      trajectoryEntry: entry,
+      patch: { status: 'done', best, totalEvals },
+      genEvent,
+      endEvent: { job_id: job.id, status: 'done', best, total_evals: totalEvals, error: null },
+      done: true,
+    }
+  }
+  return { trajectoryEntry: entry, patch: {}, genEvent, endEvent: null, done: false }
+}
+
+function applyTransition(job: SearchJob, t: StepTransition): void {
+  if (t.trajectoryEntry) {
+    job.trajectory.push(t.trajectoryEntry)
+  }
+  Object.assign(job, t.patch)
+  if (t.genEvent) {
+    searchEvents.emit('gen', t.genEvent)
+  }
+  if (t.endEvent) {
+    searchEvents.emit('end', t.endEvent)
+  }
+}
+
+// drives search_step until done/cancel/error, updating the job in place. detached
+// from any HTTP request so the search survives client disconnect. the decision
+// logic lives in computeStepTransition; this only does I/O and applies the result.
+export async function stepLoop(job: SearchJob, bridge: LuaBridge): Promise<void> {
+  for (;;) {
+    if (job.cancelRequested) {
+      await bridge.send({ cmd: 'search_cancel' }).catch(() => {})
+      applyTransition(job, computeStepTransition(job, { type: 'cancel' }))
+      return
+    }
+    let input: StepInput
+    try {
+      const resp = await bridge.send({ cmd: 'search_step', timeoutMs: STEP_TIMEOUT_MS })
+      input = { type: 'step', data: resp.data as StepData }
+    } catch (e) {
+      input = { type: 'error', message: e instanceof Error ? e.message : String(e) }
+    }
+    const t = computeStepTransition(job, input)
+    applyTransition(job, t)
+    if (t.done) {
+      return
+    }
   }
 }
 

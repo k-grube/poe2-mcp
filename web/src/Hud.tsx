@@ -1,4 +1,5 @@
 import type { StreamState } from './useSearchStream.js'
+import type { TreeNode } from './types.js'
 
 const box: React.CSSProperties = {
   position: 'absolute',
@@ -80,10 +81,29 @@ function StatsPanel({ s }: { s: StreamState }) {
   )
 }
 
-export function Hud({ state }: { state: StreamState }) {
+function HoverPanel({ node }: { node: TreeNode | null }) {
+  if (!node) {
+    return null
+  }
+  return (
+    <div style={{ ...box, top: 12, right: 12, maxWidth: 300, lineHeight: 1.5 }}>
+      <div style={{ color: '#d9b45b', fontWeight: 'bold' }}>{node.name}</div>
+      <div style={{ opacity: 0.6 }}>
+        {node.type}
+        {node.ascendancy ? ` · ${node.ascendancy}` : ''}
+      </div>
+      {node.stats?.map((line, i) => (
+        <div key={i}>{line}</div>
+      ))}
+    </div>
+  )
+}
+
+export function Hud({ state, hover }: { state: StreamState; hover: TreeNode | null }) {
   return (
     <>
       <StatusChip s={state} />
+      <HoverPanel node={hover} />
       <ScoreChart s={state} />
       <StatsPanel s={state} />
     </>
