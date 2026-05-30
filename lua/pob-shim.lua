@@ -102,6 +102,19 @@ handlers["get_socket_groups"] = function(_args)
   if build.skillsTab and build.skillsTab.socketGroupList then
     for i, sg in ipairs(build.skillsTab.socketGroupList) do
       local main_skill = sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
+      local gems = {}
+      if sg.gemList then
+        for _, gem in ipairs(sg.gemList) do
+          local ge = gem.grantedEffect or (gem.gemData and gem.gemData.grantedEffect)
+          gems[#gems+1] = {
+            name    = (ge and ge.name) or gem.nameSpec or "?",
+            support = (ge and ge.support) == true,
+            enabled = gem.enabled ~= false,
+            level   = gem.level,
+            quality = gem.quality,
+          }
+        end
+      end
       groups[#groups+1] = {
         index               = i,
         label               = sg.label,
@@ -112,6 +125,7 @@ handlers["get_socket_groups"] = function(_args)
         source              = sg.source,
         main_skill_name     = main_skill and main_skill.activeEffect and main_skill.activeEffect.grantedEffect and main_skill.activeEffect.grantedEffect.name,
         gem_count           = sg.gemList and #sg.gemList or 0,
+        gems                = gems,
       }
     end
   end
@@ -162,6 +176,19 @@ handlers["set_full_dps_inclusion"] = function(args)
   return {ok = true, data = {touched_indices = touched, included = include}}
 end
 
+-- header fields shared by load_build and get_build_info
+local function build_info()
+  local b = build
+  local sg = b.skillsTab and b.skillsTab.socketGroupList and b.skillsTab.socketGroupList[b.mainSocketGroup]
+  local skill = sg and sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
+  return {
+    class_name = (b.spec and b.spec.curClassName) or "unknown",
+    ascendancy = (b.spec and b.spec.curAscendClassName) or "none",
+    level      = b.characterLevel or 0,
+    main_skill = (skill and skill.activeEffect and skill.activeEffect.grantedEffect and skill.activeEffect.grantedEffect.name) or "unknown",
+  }
+end
+
 -- node side handles base64+zlib decode; this handler only sees raw XML
 handlers["load_build"] = function(args)
   local xml = args and args.code
@@ -176,15 +203,12 @@ handlers["load_build"] = function(args)
     pcall(function() mainObject:OnFrame() end)
   end
   loaded = true
-  local b = build
-  local sg = b.skillsTab and b.skillsTab.socketGroupList and b.skillsTab.socketGroupList[b.mainSocketGroup]
-  local skill = sg and sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
-  return {ok = true, data = {
-    class_name  = (b.spec and b.spec.curClassName) or "unknown",
-    ascendancy  = (b.spec and b.spec.curAscendClassName) or "none",
-    level       = b.characterLevel or 0,
-    main_skill  = (skill and skill.activeEffect and skill.activeEffect.grantedEffect and skill.activeEffect.grantedEffect.name) or "unknown",
-  }}
+  return {ok = true, data = build_info()}
+end
+
+handlers["get_build_info"] = function(_args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  return {ok = true, data = build_info()}
 end
 
 handlers["get_dps"] = function(_args)
