@@ -49,4 +49,42 @@ export interface Snapshot {
   trajectory: TrajectoryEntry[]
   champion_node_ids: number[]
   error: string | null
+  build: BuildInfo | null
+}
+
+export interface BuildInfo {
+  class_name: string
+  ascendancy: string
+  level: number
+  main_skill: string
+}
+
+export interface Gem {
+  name: string
+  support: boolean
+  enabled: boolean
+  level: number | null
+  quality: number | null
+}
+
+export interface SocketGroup {
+  index: number
+  label: string | null
+  enabled: boolean
+  include_in_full_dps: boolean
+  is_main: boolean
+  slot: string | null
+  source: string | null
+  main_skill_name: string | null
+  gem_count: number
+  gems: Gem[]
+}
+
+export interface BuildSummary {
+  info: BuildInfo
+  dps: Record<string, unknown>
+  ehp: Record<string, unknown>
+  breakpoints: Record<string, unknown>
+  tree: { points_used: number; keystones: string[]; notables: string[] }
+  socket_groups: { groups: SocketGroup[]; main_socket_group: number }
 }

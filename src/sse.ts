@@ -1,10 +1,10 @@
 import type { SearchJob } from './search-jobs.js'
-import type { Snapshot } from './wire-types.js'
+import type { Snapshot, BuildInfo } from './wire-types.js'
 
 export type { Snapshot }
 
 // builds the connect-time snapshot so late-join / reconnect replays history then continues live
-export function snapshotOf(job: SearchJob | null): Snapshot {
+export function snapshotOf(job: SearchJob | null, build: BuildInfo | null = null): Snapshot {
   if (!job) {
     return {
       status: 'idle',
@@ -14,6 +14,7 @@ export function snapshotOf(job: SearchJob | null): Snapshot {
       trajectory: [],
       champion_node_ids: [],
       error: null,
+      build,
     }
   }
   const latest = job.trajectory[job.trajectory.length - 1]
@@ -25,6 +26,7 @@ export function snapshotOf(job: SearchJob | null): Snapshot {
     trajectory: job.trajectory,
     champion_node_ids: latest?.champion_node_ids ?? [],
     error: job.error,
+    build,
   }
 }
 
