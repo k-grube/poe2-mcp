@@ -29,6 +29,7 @@ const summary: BuildSummary = {
     ],
     main_socket_group: 1,
   },
+  allocated_nodes: [{ id: 1, alloc_mode: 0 }],
 }
 
 describe('SummaryPanel', () => {

@@ -87,4 +87,6 @@ export interface BuildSummary {
   breakpoints: Record<string, unknown>
   tree: { points_used: number; keystones: string[]; notables: string[] }
   socket_groups: { groups: SocketGroup[]; main_socket_group: number }
+  // alloc_mode: 0 normal, 1 weapon set 1, 2 weapon set 2
+  allocated_nodes: Array<{ id: number; alloc_mode: number }>
 }

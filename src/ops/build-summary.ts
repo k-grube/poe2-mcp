@@ -12,5 +12,9 @@ export const getBuildSummary: ToolBody = async (bridge) => {
   const breakpoints = (await bridge.send({ cmd: 'get_breakpoints' })).data
   const tree = (await bridge.send({ cmd: 'get_tree_summary' })).data
   const socket_groups = (await bridge.send({ cmd: 'get_socket_groups' })).data
-  return { info, dps, ehp, breakpoints, tree, socket_groups }
+  const allocated = (await bridge.send({ cmd: 'get_allocated_nodes' })).data as {
+    nodes?: Array<{ id: number; alloc_mode?: number }>
+  }
+  const allocated_nodes = (allocated?.nodes ?? []).map((n) => ({ id: n.id, alloc_mode: n.alloc_mode ?? 0 }))
+  return { info, dps, ehp, breakpoints, tree, socket_groups, allocated_nodes }
 }

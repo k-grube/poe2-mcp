@@ -22,13 +22,24 @@ describe('getBuildSummary', () => {
       get_breakpoints: { fire_res: 75 },
       get_tree_summary: { points_used: 100, keystones: ['Chaos Inoculation'], notables: [] },
       get_socket_groups: { groups: [], main_socket_group: 1 },
+      get_allocated_nodes: {
+        nodes: [
+          { id: 5, alloc_mode: 0 },
+          { id: 9, alloc_mode: 1 },
+        ],
+      },
     })
     const out = (await getBuildSummary(bridge, undefined)) as {
       info: { class_name: string }
       dps: { full_dps: number }
+      allocated_nodes: Array<{ id: number; alloc_mode: number }>
     }
     expect(out.info.class_name).toBe('Witch')
     expect(out.dps.full_dps).toBe(123)
+    expect(out.allocated_nodes).toEqual([
+      { id: 5, alloc_mode: 0 },
+      { id: 9, alloc_mode: 1 },
+    ])
     expect(vi.mocked(bridge.send)).toHaveBeenCalledWith({
       cmd: 'set_full_dps_inclusion',
       args: { all_enabled: true, included: true },

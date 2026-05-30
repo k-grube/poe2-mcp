@@ -1,16 +1,41 @@
 import { memo, useMemo, useRef } from 'react'
 import type { TreeLayout } from './types.js'
-import { nodeRadius, nodeFill, GOLD, DIM } from './nodeStyle.js'
+import { nodeRadius, nodeFill, GOLD, DIM, SET1, SET2 } from './nodeStyle.js'
 import { usePanZoom } from './usePanZoom.js'
+
+const NO_MODES = new Map<number, number>()
 
 interface Props {
   layout: TreeLayout
   championNodeIds: Set<number>
   addedNodeIds: Set<number>
   onHoverId: (id: number | null) => void
+  allocModes?: Map<number, number>
 }
 
-const BaseEdges = memo(function BaseEdges({ layout, alloc }: { layout: TreeLayout; alloc: Set<number> }) {
+// lit (both ends allocated) -> gold, unless both ends share a weapon set (red/green)
+function edgeColor(lit: boolean, ma: number, mb: number): string {
+  if (!lit) {
+    return DIM
+  }
+  if (ma === 1 && mb === 1) {
+    return SET1
+  }
+  if (ma === 2 && mb === 2) {
+    return SET2
+  }
+  return GOLD
+}
+
+const BaseEdges = memo(function BaseEdges({
+  layout,
+  alloc,
+  modes,
+}: {
+  layout: TreeLayout
+  alloc: Set<number>
+  modes: Map<number, number>
+}) {
   const byId = useMemo(() => new Map(layout.nodes.map((n) => [n.id, n])), [layout])
   return (
     <g>
@@ -34,7 +59,7 @@ const BaseEdges = memo(function BaseEdges({ layout, alloc }: { layout: TreeLayou
             y1={na.y}
             x2={nb.x}
             y2={nb.y}
-            stroke={lit ? GOLD : DIM}
+            stroke={edgeColor(lit, modes.get(a) ?? 0, modes.get(b) ?? 0)}
             strokeWidth={lit ? 18 : 10}
             opacity={lit ? 1 : 0.6}
           />
@@ -44,7 +69,7 @@ const BaseEdges = memo(function BaseEdges({ layout, alloc }: { layout: TreeLayou
   )
 })
 
-export function TreeCanvas({ layout, championNodeIds, addedNodeIds, onHoverId }: Props) {
+export function TreeCanvas({ layout, championNodeIds, addedNodeIds, onHoverId, allocModes = NO_MODES }: Props) {
   const { minX, minY, maxX, maxY } = layout.bounds
   const pad = 200
   const vbW = maxX - minX + pad * 2
@@ -73,7 +98,7 @@ export function TreeCanvas({ layout, championNodeIds, addedNodeIds, onHoverId }:
       }}
     >
       <g transform={transform}>
-        <BaseEdges layout={layout} alloc={championNodeIds} />
+        <BaseEdges layout={layout} alloc={championNodeIds} modes={allocModes} />
         {layout.nodes.map((n) => {
           const allocated = championNodeIds.has(n.id)
           let stroke = 'none'
@@ -88,7 +113,7 @@ export function TreeCanvas({ layout, championNodeIds, addedNodeIds, onHoverId }:
               cx={n.x}
               cy={n.y}
               r={nodeRadius(n.type)}
-              fill={nodeFill(n.type, allocated)}
+              fill={nodeFill(n.type, allocated, allocModes.get(n.id) ?? 0)}
               stroke={stroke}
               strokeWidth={n.type === 'keystone' ? 4 : 0}
             >

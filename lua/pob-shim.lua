@@ -365,6 +365,7 @@ handlers["get_allocated_nodes"] = function(_args)
         type       = node_type(node),
         ascendancy = node.ascendancyName,
         stats      = node.sd, -- short description / stat lines
+        alloc_mode = node.allocMode or 0, -- 0 normal, 1 weapon set 1, 2 weapon set 2
       }
     end
   end

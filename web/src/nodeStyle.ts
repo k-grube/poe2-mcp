@@ -40,13 +40,25 @@ export const GOLD = '#d9b45b'
 export const DIM = '#3a4150'
 export const JEWEL = '#5b8fd9'
 export const START = '#5b8fd9'
+export const SET1 = '#d95b5b' // weapon set 1 (red)
+export const SET2 = '#5bd97a' // weapon set 2 (green)
 
-export function nodeFill(type: NodeType, allocated: boolean): string {
+// allocMode: 0 normal -> gold, 1 weapon set 1 -> red, 2 weapon set 2 -> green
+export function nodeFill(type: NodeType, allocated: boolean, allocMode = 0): string {
   if (type === 'class_start' || type === 'ascend_start') {
     return START
   }
-  if (type === 'jewel_socket') {
-    return allocated ? JEWEL : DIM
+  if (!allocated) {
+    return DIM
   }
-  return allocated ? GOLD : DIM
+  if (allocMode === 1) {
+    return SET1
+  }
+  if (allocMode === 2) {
+    return SET2
+  }
+  if (type === 'jewel_socket') {
+    return JEWEL
+  }
+  return GOLD
 }

@@ -18,6 +18,21 @@ export function App() {
     () => diffNodeIds(stream.prevNodeIds, stream.championNodeIds).added,
     [stream.prevNodeIds, stream.championNodeIds],
   )
+  // a running search drives the tree; otherwise show the loaded build's allocation,
+  // colored by weapon set. search is normal-tree only, so no modes there.
+  const searching = stream.championNodeIds.size > 0
+  const shownNodeIds = useMemo(() => {
+    if (searching) {
+      return stream.championNodeIds
+    }
+    return new Set((summary?.allocated_nodes ?? []).map((n) => n.id))
+  }, [searching, stream.championNodeIds, summary])
+  const allocModes = useMemo(() => {
+    if (searching) {
+      return new Map<number, number>()
+    }
+    return new Map((summary?.allocated_nodes ?? []).map((n) => [n.id, n.alloc_mode]))
+  }, [searching, summary])
 
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex' }}>
@@ -27,8 +42,9 @@ export function App() {
           <>
             <TreeCanvas
               layout={layout}
-              championNodeIds={stream.championNodeIds}
+              championNodeIds={shownNodeIds}
               addedNodeIds={added}
+              allocModes={allocModes}
               onHoverId={(id) => setHover(id === null ? null : (byId.get(id) ?? null))}
             />
             <Hud state={stream} hover={hover} />
