@@ -10,6 +10,7 @@ const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
   trajectory: [],
   champion_node_ids: [],
   error: null,
+  build: null,
   ...over,
 })
 

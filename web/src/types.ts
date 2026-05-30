@@ -33,4 +33,8 @@ export type {
   GenEvent,
   EndEvent,
   Snapshot,
+  BuildInfo,
+  BuildSummary,
+  Gem,
+  SocketGroup,
 } from '../../src/wire-types.js'
