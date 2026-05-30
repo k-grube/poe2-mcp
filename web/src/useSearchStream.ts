@@ -1,5 +1,5 @@
 import { useEffect, useReducer } from 'react'
-import type { Snapshot, StartEvent, GenEvent, EndEvent, Status, TrajectoryEntry } from './types.js'
+import type { Snapshot, StartEvent, GenEvent, EndEvent, Status, TrajectoryEntry, BuildInfo } from './types.js'
 
 export interface ScorePoint {
   generation: number
@@ -21,6 +21,7 @@ export interface StreamState {
   initial: { score: number; stats: Record<string, number> } | null
   pointsUsed: number
   error: string | null
+  buildInfo: BuildInfo | null
 }
 
 export const initialState: StreamState = {
@@ -35,6 +36,7 @@ export const initialState: StreamState = {
   initial: null,
   pointsUsed: 0,
   error: null,
+  buildInfo: null,
 }
 
 type Action =
@@ -42,6 +44,7 @@ type Action =
   | { type: 'start'; e: StartEvent }
   | { type: 'gen'; e: GenEvent }
   | { type: 'end'; e: EndEvent }
+  | { type: 'build'; e: BuildInfo }
 
 const point = (t: TrajectoryEntry): ScorePoint => ({
   generation: t.generation,
@@ -69,6 +72,7 @@ export function reduce(state: StreamState, action: Action): StreamState {
         generation: last?.generation ?? 0,
         pointsUsed: last?.points_used ?? 0,
         error: e.error,
+        buildInfo: e.build,
       }
     }
     case 'start': {
@@ -79,6 +83,7 @@ export function reduce(state: StreamState, action: Action): StreamState {
         jobId: e.job_id,
         totalGenerations: e.total_generations,
         initial: e.initial,
+        buildInfo: state.buildInfo,
       }
     }
     case 'gen': {
@@ -98,6 +103,9 @@ export function reduce(state: StreamState, action: Action): StreamState {
       const { e } = action
       return { ...state, status: e.status, error: e.error }
     }
+    case 'build': {
+      return { ...initialState, buildInfo: action.e }
+    }
     default:
       return state
   }
@@ -112,6 +120,7 @@ export function useSearchStream(): StreamState {
     es.addEventListener('start', (ev) => dispatch({ type: 'start', e: JSON.parse((ev as MessageEvent).data) }))
     es.addEventListener('gen', (ev) => dispatch({ type: 'gen', e: JSON.parse((ev as MessageEvent).data) }))
     es.addEventListener('end', (ev) => dispatch({ type: 'end', e: JSON.parse((ev as MessageEvent).data) }))
+    es.addEventListener('build', (ev) => dispatch({ type: 'build', e: JSON.parse((ev as MessageEvent).data) }))
     return () => es.close()
   }, [])
   return state
