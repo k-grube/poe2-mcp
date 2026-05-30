@@ -13,9 +13,10 @@ function bridgeReturning(byCmd: Record<string, unknown>): LuaBridge {
 }
 
 describe('getBuildSummary', () => {
-  it('aggregates the per-area handlers into one object', async () => {
+  it('enables full-dps inclusion then aggregates the per-area handlers', async () => {
     const bridge = bridgeReturning({
       get_build_info: { class_name: 'Witch', ascendancy: 'Infernalist', level: 90, main_skill: 'Fireball' },
+      set_full_dps_inclusion: { touched_indices: [1], included: true },
       get_dps: { full_dps: 123 },
       get_ehp: { total_ehp: 456 },
       get_breakpoints: { fire_res: 75 },
@@ -28,6 +29,10 @@ describe('getBuildSummary', () => {
     }
     expect(out.info.class_name).toBe('Witch')
     expect(out.dps.full_dps).toBe(123)
+    expect(vi.mocked(bridge.send)).toHaveBeenCalledWith({
+      cmd: 'set_full_dps_inclusion',
+      args: { all_enabled: true, included: true },
+    })
   })
 
   it('propagates a no-build error from the first call', async () => {
