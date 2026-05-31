@@ -132,7 +132,7 @@ async function main() {
     })
     app.use(vite.middlewares)
   } else {
-    app.use(express.static(path.resolve(__dirname, '..', 'web', 'dist')))
+    app.use(express.static(path.resolve(__dirname, '..', 'src', 'web', 'dist')))
   }
 
   server.listen(PORT, () => {

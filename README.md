@@ -123,12 +123,7 @@ A read-only browser view of the GA search, served at `http://localhost:3000`.
 - It's an observer only — there are no controls. Claude/MCP drives the search; the browser just watches. Open or refresh it mid-search and it replays history then continues live.
 - If the server has no build loaded, the page says so instead of rendering a blank tree.
 
-**Developing the UI:** the frontend lives in `web/` as its own Vite + React project.
-
-```sh
-npm run dev        # terminal 1: the MCP server on :3000
-npm run dev:web    # terminal 2: Vite dev server with HMR, proxies /api + /events to :3000
-```
+**Developing the UI:** the frontend lives in `src/web/` (Vite + React, same package as the server). `npm run dev` serves both the MCP server and the viz (Vite middleware mode + HMR) on :3000.
 
 ## Project layout
 
@@ -137,8 +132,8 @@ src/            TypeScript MCP server (Express HTTP/SSE)
   lua-bridge.ts   LuaJIT subprocess manager (stdin/stdout JSON)
   search-jobs.ts  async GA job registry + event bus
   tools/          one file per MCP tool
+  web/            Vite + React tree-viz companion (browser)
 lua/pob-shim.lua  Lua side: boots HeadlessWrapper, extracts stats, runs the GA
-web/            Vite + React tree-viz companion (own package.json)
 pob2/           PathOfBuilding-PoE2 clone (git-ignored, managed by setup)
 tests/          vitest unit tests (mocked subprocess)
 scripts/        smoke/integration scripts
@@ -150,7 +145,7 @@ scripts/        smoke/integration scripts
 npm run dev          # server, tsx watch
 npm test             # server unit tests (vitest)
 npm run build        # tsc -> dist/
-npm run build:web    # build the viz UI -> web/dist
+npm run build:web    # build the viz UI -> src/web/dist
 npm run lint         # eslint
 npm run format       # prettier --write
 

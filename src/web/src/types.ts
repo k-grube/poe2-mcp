@@ -37,4 +37,4 @@ export type {
   BuildSummary,
   Gem,
   SocketGroup,
-} from '../../src/wire-types.js'
+} from '../../wire-types.js'

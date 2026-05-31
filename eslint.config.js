@@ -65,8 +65,9 @@ export default tseslint.config(
     settings: { react: { version: 'detect' } },
   },
   {
-    // node-side globals for the MCP server and scripts
+    // node-side globals for the MCP server and scripts (src/web is browser-side)
     files: ['src/**/*.ts', 'scripts/**/*.ts', 'tests/**/*.ts'],
+    ignores: ['src/web/**'],
     languageOptions: {
       globals: {
         process: 'readonly',
