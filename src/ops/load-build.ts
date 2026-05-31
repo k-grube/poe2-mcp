@@ -3,6 +3,7 @@ import { inflateSync } from 'node:zlib'
 import { z } from 'zod'
 import type { ToolBody } from '../tools/define-tool.js'
 import { setActiveBuild } from '../active-build.js'
+import { getActiveJob } from '../search-jobs.js'
 import type { BuildInfo } from '../wire-types.js'
 
 const InputSchema = z
@@ -28,6 +29,11 @@ function decodePobCode(input: string): string {
 // load a build into the lua subprocess, record it as the active build, notify
 // viewers. shared by the mcp tool and the POST /api/load-build route.
 export const loadBuild: ToolBody = async (bridge, args) => {
+  // concurrency rule: a running search owns the build; don't swap it out underneath
+  const active = getActiveJob()
+  if (active && active.status === 'running') {
+    throw new Error('a search is running; cancel it before loading a new build')
+  }
   const parsed = InputSchema.parse(args)
   const raw = parsed.pob_code ?? readFileSync(parsed.pob_code_path!, 'utf8')
   const xml = decodePobCode(raw)
