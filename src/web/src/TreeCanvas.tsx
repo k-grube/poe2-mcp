@@ -7,6 +7,7 @@ import { edgeColor, fitCamera, hitTest, type Camera } from './treeRender.js'
 const MIN_ZOOM = 0.02
 const MAX_ZOOM = 5
 const NO_MODES = new Map<number, number>()
+const NO_GHOSTS = new Set<number>()
 
 interface Props {
   layout: TreeLayout
@@ -14,12 +15,20 @@ interface Props {
   addedNodeIds: Set<number>
   onHoverId: (id: number | null) => void
   allocModes?: Map<number, number>
+  ghostNodeIds?: Set<number>
 }
 
 // canvas renderer: redraws the whole tree on pan/zoom (fast for ~4500 elements,
 // unlike the per-frame SVG repaint). hover is hit-tested; the search flash is a
 // drawn ring. the pure transform/hit helpers live in treeRender.ts.
-export function TreeCanvas({ layout, championNodeIds, addedNodeIds, onHoverId, allocModes = NO_MODES }: Props) {
+export function TreeCanvas({
+  layout,
+  championNodeIds,
+  addedNodeIds,
+  onHoverId,
+  allocModes = NO_MODES,
+  ghostNodeIds = NO_GHOSTS,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const cam = useRef<Camera>({ zoom: 1, x: 0, y: 0 })
   const fitted = useRef(false)
@@ -29,8 +38,8 @@ export function TreeCanvas({ layout, championNodeIds, addedNodeIds, onHoverId, a
   const byId = useMemo(() => new Map(layout.nodes.map((n) => [n.id, n])), [layout])
 
   // latest props for the imperative draw loop (avoids stale closures)
-  const view = useRef({ layout, championNodeIds, addedNodeIds, allocModes, byId })
-  view.current = { layout, championNodeIds, addedNodeIds, allocModes, byId }
+  const view = useRef({ layout, championNodeIds, addedNodeIds, allocModes, ghostNodeIds, byId })
+  view.current = { layout, championNodeIds, addedNodeIds, allocModes, ghostNodeIds, byId }
 
   function draw() {
     const canvas = canvasRef.current
@@ -71,19 +80,28 @@ export function TreeCanvas({ layout, championNodeIds, addedNodeIds, onHoverId, a
     ctx.globalAlpha = 1
     for (const n of v.layout.nodes) {
       const allocated = v.championNodeIds.has(n.id)
+      const ghost = !allocated && v.ghostNodeIds.has(n.id)
       const r = nodeRadius(n.type)
+      ctx.globalAlpha = ghost ? 0.35 : 1
       ctx.beginPath()
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2)
       ctx.fillStyle = nodeFill(n.type, allocated, v.allocModes.get(n.id) ?? 0)
       ctx.fill()
-      if (n.type === 'keystone') {
+      ctx.globalAlpha = 1
+      if (ghost) {
+        // removed by the search: faded node, red outline
+        ctx.lineWidth = 5
+        ctx.strokeStyle = '#d95b5b'
+        ctx.stroke()
+      } else if (n.type === 'keystone') {
         ctx.lineWidth = 4
         ctx.strokeStyle = allocated ? '#fff3cf' : '#6b7280'
         ctx.stroke()
       }
       if (v.addedNodeIds.has(n.id)) {
-        ctx.lineWidth = 6
-        ctx.strokeStyle = '#fff3cf'
+        // added by the search: green ring
+        ctx.lineWidth = 5
+        ctx.strokeStyle = '#5bd97a'
         ctx.beginPath()
         ctx.arc(n.x, n.y, r + 10, 0, Math.PI * 2)
         ctx.stroke()
@@ -134,7 +152,7 @@ export function TreeCanvas({ layout, championNodeIds, addedNodeIds, onHoverId, a
   // redraw when allocation / search state changes
   useEffect(() => {
     requestDraw()
-  }, [layout, championNodeIds, addedNodeIds, allocModes])
+  }, [layout, championNodeIds, addedNodeIds, allocModes, ghostNodeIds])
 
   // cursor-anchored wheel zoom (native non-passive so preventDefault works)
   useEffect(() => {
