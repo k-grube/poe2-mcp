@@ -1,8 +1,11 @@
-import { memo, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { TreeLayout } from './types.js'
-import { nodeRadius, nodeFill, GOLD, DIM, SET1, SET2 } from './nodeStyle.js'
-import { usePanZoom } from './usePanZoom.js'
+import { nodeRadius, nodeFill } from './nodeStyle.js'
+import { edgeColor, fitCamera, hitTest, type Camera } from './treeRender.js'
 
+const MIN_ZOOM = 0.02
+const MAX_ZOOM = 5
 const NO_MODES = new Map<number, number>()
 
 interface Props {
@@ -13,137 +16,183 @@ interface Props {
   allocModes?: Map<number, number>
 }
 
-// lit (both ends allocated) -> gold, unless both ends share a weapon set (red/green)
-function edgeColor(lit: boolean, ma: number, mb: number): string {
-  if (!lit) {
-    return DIM
-  }
-  if (ma === 1 && mb === 1) {
-    return SET1
-  }
-  if (ma === 2 && mb === 2) {
-    return SET2
-  }
-  return GOLD
-}
-
-const BaseEdges = memo(function BaseEdges({
-  layout,
-  alloc,
-  modes,
-}: {
-  layout: TreeLayout
-  alloc: Set<number>
-  modes: Map<number, number>
-}) {
-  const byId = useMemo(() => new Map(layout.nodes.map((n) => [n.id, n])), [layout])
-  return (
-    <g>
-      {layout.edges.map(([a, b], i) => {
-        const na = byId.get(a)
-        const nb = byId.get(b)
-        if (!na || !nb) {
-          return null
-        }
-        // hide only the bridge between the main tree and an ascendancy cluster (still
-        // connected). cluster membership is the `ascendancy` field, not type -- ascendancy
-        // notables are typed 'notable', so a type test would wrongly hide their edges.
-        if (Boolean(na.ascendancy) !== Boolean(nb.ascendancy)) {
-          return null
-        }
-        const lit = alloc.has(a) && alloc.has(b)
-        return (
-          <line
-            key={i}
-            x1={na.x}
-            y1={na.y}
-            x2={nb.x}
-            y2={nb.y}
-            stroke={edgeColor(lit, modes.get(a) ?? 0, modes.get(b) ?? 0)}
-            strokeWidth={lit ? 18 : 10}
-            opacity={lit ? 1 : 0.6}
-          />
-        )
-      })}
-    </g>
-  )
-})
-
-// memoized so panning/zooming/hover (which re-render TreeCanvas) don't re-run the
-// ~1500-node map; only the <g transform> attribute changes on pan.
-const BaseNodes = memo(function BaseNodes({
-  layout,
-  alloc,
-  added,
-  modes,
-}: {
-  layout: TreeLayout
-  alloc: Set<number>
-  added: Set<number>
-  modes: Map<number, number>
-}) {
-  return (
-    <>
-      {layout.nodes.map((n) => {
-        const allocated = alloc.has(n.id)
-        let stroke = 'none'
-        if (n.type === 'keystone') {
-          stroke = allocated ? '#fff3cf' : '#6b7280'
-        }
-        return (
-          <circle
-            key={n.id}
-            data-node-id={n.id}
-            data-flash={added.has(n.id) ? 'true' : 'false'}
-            cx={n.x}
-            cy={n.y}
-            r={nodeRadius(n.type)}
-            fill={nodeFill(n.type, allocated, modes.get(n.id) ?? 0)}
-            stroke={stroke}
-            strokeWidth={n.type === 'keystone' ? 4 : 0}
-          >
-            {added.has(n.id) ? (
-              <animate attributeName="r" from={nodeRadius(n.type) * 1.8} to={nodeRadius(n.type)} dur="0.6s" />
-            ) : null}
-          </circle>
-        )
-      })}
-    </>
-  )
-})
-
+// canvas renderer: redraws the whole tree on pan/zoom (fast for ~4500 elements,
+// unlike the per-frame SVG repaint). hover is hit-tested; the search flash is a
+// drawn ring. the pure transform/hit helpers live in treeRender.ts.
 export function TreeCanvas({ layout, championNodeIds, addedNodeIds, onHoverId, allocModes = NO_MODES }: Props) {
-  const { minX, minY, maxX, maxY } = layout.bounds
-  const pad = 200
-  const vbW = maxX - minX + pad * 2
-  const vbH = maxY - minY + pad * 2
-  const vb = `${minX - pad} ${minY - pad} ${vbW} ${vbH}`
-  const svgRef = useRef<SVGSVGElement>(null)
-  const { transform, onMouseDown, onMouseMove, onMouseUp, endDrag } = usePanZoom(svgRef, vbW, vbH)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const cam = useRef<Camera>({ zoom: 1, x: 0, y: 0 })
+  const fitted = useRef(false)
+  const drag = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null)
+  const raf = useRef(0)
+
+  const byId = useMemo(() => new Map(layout.nodes.map((n) => [n.id, n])), [layout])
+
+  // latest props for the imperative draw loop (avoids stale closures)
+  const view = useRef({ layout, championNodeIds, addedNodeIds, allocModes, byId })
+  view.current = { layout, championNodeIds, addedNodeIds, allocModes, byId }
+
+  function draw() {
+    const canvas = canvasRef.current
+    if (!canvas) {
+      return
+    }
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      return
+    }
+    const v = view.current
+    const c = cam.current
+    const dpr = window.devicePixelRatio || 1
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.fillStyle = '#0c0e12'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.setTransform(c.zoom * dpr, 0, 0, c.zoom * dpr, c.x * dpr, c.y * dpr)
+    ctx.lineCap = 'round'
+    for (const [a, b] of v.layout.edges) {
+      const na = v.byId.get(a)
+      const nb = v.byId.get(b)
+      if (!na || !nb) {
+        continue
+      }
+      // hide the bridge between the main tree and an ascendancy cluster
+      if (Boolean(na.ascendancy) !== Boolean(nb.ascendancy)) {
+        continue
+      }
+      const lit = v.championNodeIds.has(a) && v.championNodeIds.has(b)
+      ctx.strokeStyle = edgeColor(lit, v.allocModes.get(a) ?? 0, v.allocModes.get(b) ?? 0)
+      ctx.lineWidth = lit ? 18 : 10
+      ctx.globalAlpha = lit ? 1 : 0.6
+      ctx.beginPath()
+      ctx.moveTo(na.x, na.y)
+      ctx.lineTo(nb.x, nb.y)
+      ctx.stroke()
+    }
+    ctx.globalAlpha = 1
+    for (const n of v.layout.nodes) {
+      const allocated = v.championNodeIds.has(n.id)
+      const r = nodeRadius(n.type)
+      ctx.beginPath()
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2)
+      ctx.fillStyle = nodeFill(n.type, allocated, v.allocModes.get(n.id) ?? 0)
+      ctx.fill()
+      if (n.type === 'keystone') {
+        ctx.lineWidth = 4
+        ctx.strokeStyle = allocated ? '#fff3cf' : '#6b7280'
+        ctx.stroke()
+      }
+      if (v.addedNodeIds.has(n.id)) {
+        ctx.lineWidth = 6
+        ctx.strokeStyle = '#fff3cf'
+        ctx.beginPath()
+        ctx.arc(n.x, n.y, r + 10, 0, Math.PI * 2)
+        ctx.stroke()
+      }
+    }
+  }
+
+  function requestDraw() {
+    if (raf.current) {
+      return
+    }
+    raf.current = requestAnimationFrame(() => {
+      raf.current = 0
+      draw()
+    })
+  }
+
+  // size to parent, fit on first size, redraw on resize
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const parent = canvas?.parentElement
+    if (!canvas || !parent) {
+      return
+    }
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1
+      const w = parent.clientWidth
+      const h = parent.clientHeight
+      canvas.style.width = `${w}px`
+      canvas.style.height = `${h}px`
+      canvas.width = Math.round(w * dpr)
+      canvas.height = Math.round(h * dpr)
+      if (!fitted.current && w > 0 && h > 0) {
+        cam.current = fitCamera(view.current.layout.bounds, w, h)
+        fitted.current = true
+      }
+      requestDraw()
+    }
+    resize()
+    if (typeof ResizeObserver === 'undefined') {
+      return
+    }
+    const ro = new ResizeObserver(resize)
+    ro.observe(parent)
+    return () => ro.disconnect()
+  }, [])
+
+  // redraw when allocation / search state changes
+  useEffect(() => {
+    requestDraw()
+  }, [layout, championNodeIds, addedNodeIds, allocModes])
+
+  // cursor-anchored wheel zoom (native non-passive so preventDefault works)
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) {
+      return
+    }
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const rect = canvas.getBoundingClientRect()
+      const cx = e.clientX - rect.left
+      const cy = e.clientY - rect.top
+      const c = cam.current
+      const tx = (cx - c.x) / c.zoom
+      const ty = (cy - c.y) / c.zoom
+      const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, c.zoom * (e.deltaY < 0 ? 1.1 : 0.9)))
+      cam.current = { zoom: z, x: cx - tx * z, y: cy - ty * z }
+      requestDraw()
+    }
+    canvas.addEventListener('wheel', onWheel, { passive: false })
+    return () => canvas.removeEventListener('wheel', onWheel)
+  }, [])
+
+  function onMouseDown(e: ReactMouseEvent<HTMLCanvasElement>) {
+    drag.current = { sx: e.clientX, sy: e.clientY, ox: cam.current.x, oy: cam.current.y }
+  }
+  function onMouseMove(e: ReactMouseEvent<HTMLCanvasElement>) {
+    const d = drag.current
+    if (d) {
+      cam.current = { zoom: cam.current.zoom, x: d.ox + (e.clientX - d.sx), y: d.oy + (e.clientY - d.sy) }
+      requestDraw()
+      return
+    }
+    const canvas = canvasRef.current
+    if (!canvas) {
+      return
+    }
+    const rect = canvas.getBoundingClientRect()
+    const c = cam.current
+    const tx = (e.clientX - rect.left - c.x) / c.zoom
+    const ty = (e.clientY - rect.top - c.y) / c.zoom
+    onHoverId(hitTest(view.current.layout.nodes, tx, ty))
+  }
+  function endDrag() {
+    drag.current = null
+  }
 
   return (
-    <svg
-      ref={svgRef}
-      width="100%"
-      height="100%"
-      viewBox={vb}
-      style={{ display: 'block', background: '#0c0e12', cursor: 'grab' }}
+    <canvas
+      ref={canvasRef}
+      style={{ display: 'block', width: '100%', height: '100%', background: '#0c0e12', cursor: 'grab' }}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
+      onMouseUp={endDrag}
       onMouseLeave={() => {
         endDrag()
         onHoverId(null)
       }}
-      onMouseOver={(e) => {
-        const id = (e.target as Element).getAttribute?.('data-node-id')
-        onHoverId(id ? Number(id) : null)
-      }}
-    >
-      <g transform={transform}>
-        <BaseEdges layout={layout} alloc={championNodeIds} modes={allocModes} />
-        <BaseNodes layout={layout} alloc={championNodeIds} added={addedNodeIds} modes={allocModes} />
-      </g>
-    </svg>
+    />
   )
 }
