@@ -31,14 +31,29 @@ const button: React.CSSProperties = {
 }
 
 const OBJECTIVES = ['FullDPS', 'TotalEHP']
-const KNOBS: Array<{ key: string; label: string; ph: string }> = [
-  { key: 'generations', label: 'generations', ph: '10' },
-  { key: 'population_size', label: 'population', ph: '8' },
-  { key: 'hill_climb_depth', label: 'hill-climb', ph: '3' },
-  { key: 'elitism', label: 'elitism', ph: '2' },
-  { key: 'crossover_rate', label: 'crossover', ph: '0.7' },
-  { key: 'tournament_size', label: 'tournament', ph: '3' },
-  { key: 'seed', label: 'seed', ph: 'rng' },
+const KNOBS: Array<{ key: string; label: string; ph: string; tip: string }> = [
+  { key: 'generations', label: 'generations', ph: '10', tip: 'evolution rounds to run; more is slower but better' },
+  {
+    key: 'population_size',
+    label: 'population',
+    ph: '8',
+    tip: 'candidate builds per generation; larger explores more, slower',
+  },
+  {
+    key: 'hill_climb_depth',
+    label: 'hill-climb',
+    ph: '3',
+    tip: 'random leaf-swaps tried per child each round (local search)',
+  },
+  { key: 'elitism', label: 'elitism', ph: '2', tip: 'top N builds carried unchanged into the next generation' },
+  { key: 'crossover_rate', label: 'crossover', ph: '0.7', tip: '0-1: chance to combine two parents vs clone + mutate' },
+  {
+    key: 'tournament_size',
+    label: 'tournament',
+    ph: '3',
+    tip: 'candidates compared to pick each parent; higher is greedier',
+  },
+  { key: 'seed', label: 'seed', ph: 'rng', tip: 'fix the RNG for repeatable runs; blank is random' },
 ]
 
 // two-tier search config + start/cancel. simple: objective / point budget / start
@@ -49,6 +64,7 @@ export function SearchPanel({ stream }: { stream: StreamState }) {
   const [startMode, setStartMode] = useState('current')
   const [knobs, setKnobs] = useState<Record<string, string>>({})
   const [advanced, setAdvanced] = useState(false)
+  const [help, setHelp] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -130,9 +146,10 @@ export function SearchPanel({ stream }: { stream: StreamState }) {
       <button onClick={() => setAdvanced((a) => !a)} style={{ ...button, marginTop: 6, color: '#8a93a6' }}>
         {advanced ? 'hide advanced' : 'advanced'}
       </button>
-      {advanced
-        ? KNOBS.map(({ key, label, ph }) => (
-            <label key={key} style={row}>
+      {advanced ? (
+        <>
+          {KNOBS.map(({ key, label, ph, tip }) => (
+            <label key={key} style={row} onMouseEnter={() => setHelp(tip)}>
               <span style={{ opacity: 0.7 }}>{label}</span>
               <input
                 value={knobs[key] ?? ''}
@@ -143,8 +160,12 @@ export function SearchPanel({ stream }: { stream: StreamState }) {
                 disabled={running}
               />
             </label>
-          ))
-        : null}
+          ))}
+          <div style={{ opacity: 0.55, fontSize: 11, marginTop: 2, minHeight: 30 }}>
+            {help || 'hover an option for what it does'}
+          </div>
+        </>
+      ) : null}
 
       {running ? (
         <button onClick={cancel} disabled={busy} style={{ ...button, color: '#d95b5b' }}>
