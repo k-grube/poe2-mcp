@@ -26,7 +26,7 @@ const buttonStyle: React.CSSProperties = {
 
 // paste a PoB2 export code -> POST /api/load-build. on success the server emits a
 // `build` sse event, which refreshes the summary; this panel just owns the post.
-export function LoadPanel() {
+export function LoadPanel({ disabled = false }: { disabled?: boolean }) {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -65,10 +65,11 @@ export function LoadPanel() {
         rows={3}
         style={inputStyle}
       />
-      <button onClick={submit} disabled={busy || !code.trim()} style={buttonStyle}>
+      <button onClick={submit} disabled={busy || !code.trim() || disabled} style={buttonStyle}>
         {busy ? 'loading…' : 'load build'}
       </button>
       {error ? <div style={{ color: '#d95b5b', marginTop: 6 }}>{error}</div> : null}
+      {disabled ? <div style={{ opacity: 0.5, marginTop: 6 }}>cancel the search to load a new build</div> : null}
     </div>
   )
 }

@@ -36,7 +36,7 @@ export function App() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex' }}>
-      <Sidebar summary={summary} summaryError={summaryError} />
+      <Sidebar summary={summary} summaryError={summaryError} stream={stream} />
       <div style={{ flex: 1, position: 'relative' }}>
         {layout ? (
           <>
