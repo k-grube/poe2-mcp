@@ -69,6 +69,49 @@ const BaseEdges = memo(function BaseEdges({
   )
 })
 
+// memoized so panning/zooming/hover (which re-render TreeCanvas) don't re-run the
+// ~1500-node map; only the <g transform> attribute changes on pan.
+const BaseNodes = memo(function BaseNodes({
+  layout,
+  alloc,
+  added,
+  modes,
+}: {
+  layout: TreeLayout
+  alloc: Set<number>
+  added: Set<number>
+  modes: Map<number, number>
+}) {
+  return (
+    <>
+      {layout.nodes.map((n) => {
+        const allocated = alloc.has(n.id)
+        let stroke = 'none'
+        if (n.type === 'keystone') {
+          stroke = allocated ? '#fff3cf' : '#6b7280'
+        }
+        return (
+          <circle
+            key={n.id}
+            data-node-id={n.id}
+            data-flash={added.has(n.id) ? 'true' : 'false'}
+            cx={n.x}
+            cy={n.y}
+            r={nodeRadius(n.type)}
+            fill={nodeFill(n.type, allocated, modes.get(n.id) ?? 0)}
+            stroke={stroke}
+            strokeWidth={n.type === 'keystone' ? 4 : 0}
+          >
+            {added.has(n.id) ? (
+              <animate attributeName="r" from={nodeRadius(n.type) * 1.8} to={nodeRadius(n.type)} dur="0.6s" />
+            ) : null}
+          </circle>
+        )
+      })}
+    </>
+  )
+})
+
 export function TreeCanvas({ layout, championNodeIds, addedNodeIds, onHoverId, allocModes = NO_MODES }: Props) {
   const { minX, minY, maxX, maxY } = layout.bounds
   const pad = 200
@@ -99,30 +142,7 @@ export function TreeCanvas({ layout, championNodeIds, addedNodeIds, onHoverId, a
     >
       <g transform={transform}>
         <BaseEdges layout={layout} alloc={championNodeIds} modes={allocModes} />
-        {layout.nodes.map((n) => {
-          const allocated = championNodeIds.has(n.id)
-          let stroke = 'none'
-          if (n.type === 'keystone') {
-            stroke = allocated ? '#fff3cf' : '#6b7280'
-          }
-          return (
-            <circle
-              key={n.id}
-              data-node-id={n.id}
-              data-flash={addedNodeIds.has(n.id) ? 'true' : 'false'}
-              cx={n.x}
-              cy={n.y}
-              r={nodeRadius(n.type)}
-              fill={nodeFill(n.type, allocated, allocModes.get(n.id) ?? 0)}
-              stroke={stroke}
-              strokeWidth={n.type === 'keystone' ? 4 : 0}
-            >
-              {addedNodeIds.has(n.id) ? (
-                <animate attributeName="r" from={nodeRadius(n.type) * 1.8} to={nodeRadius(n.type)} dur="0.6s" />
-              ) : null}
-            </circle>
-          )
-        })}
+        <BaseNodes layout={layout} alloc={championNodeIds} added={addedNodeIds} modes={allocModes} />
       </g>
     </svg>
   )
