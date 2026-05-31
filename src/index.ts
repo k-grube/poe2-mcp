@@ -16,6 +16,7 @@ import { createTreeLayoutHandler } from './tree-layout.js'
 import { httpRoute } from './http-route.js'
 import { loadBuild } from './ops/load-build.js'
 import { getBuildSummary } from './ops/build-summary.js'
+import { searchStart, searchCancel } from './ops/search.js'
 import { getActiveBuild, buildEvents } from './active-build.js'
 import { dbg } from './debug.js'
 
@@ -53,6 +54,14 @@ async function main() {
     httpRoute(bridge, loadBuild, (req) => req.body),
   )
   app.get('/api/build-summary', httpRoute(bridge, getBuildSummary))
+  app.post(
+    '/api/search',
+    httpRoute(bridge, searchStart, (req) => req.body),
+  )
+  app.post(
+    '/api/search/cancel',
+    httpRoute(bridge, searchCancel, (req) => req.body),
+  )
 
   app.get('/events', (req, res) => {
     res.writeHead(200, {
