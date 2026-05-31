@@ -1,13 +1,21 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render } from '@testing-library/react'
 import type { BuildSummary } from './types.js'
 import { SummaryPanel } from './SummaryPanel.js'
 
 const summary: BuildSummary = {
   info: { class_name: 'Ranger', ascendancy: 'Pathfinder', level: 99, main_skill: 'Ghost Dance' },
   dps: { full_dps: 1234567, skills: [{ name: 'Gas Arrow', dps: 987654, count: 1 }] },
-  ehp: { total_ehp: 45678 },
-  breakpoints: { fire_res: 75, cold_res: 76, lightning_res: 77, chaos_res: 30 },
+  ehp: { total_ehp: 45678, life: 3000, es: 1500, armour: 100, evasion: 5000, block_chance: 25, spell_suppress: 50 },
+  breakpoints: {
+    fire_res: 75,
+    cold_res: 76,
+    lightning_res: 77,
+    chaos_res: 30,
+    fire_res_capped: true,
+    cold_res_capped: true,
+    lightning_res_capped: true,
+  },
   tree: { points_used: 112, keystones: ['Acrobatics'], notables: ['Heartseeker'] },
   socket_groups: {
     groups: [
@@ -33,13 +41,17 @@ const summary: BuildSummary = {
 }
 
 describe('SummaryPanel', () => {
-  it('renders header, a stat, the group title fallback, and gems', () => {
-    render(<SummaryPanel summary={summary} />)
-    expect(screen.getByText(/Ranger/)).toBeTruthy()
-    expect(screen.getByText(/Ghost Dance/)).toBeTruthy()
-    expect(screen.getByText('Gas Arrow')).toBeTruthy()
-    expect(screen.getByText(/Deadly Poison/)).toBeTruthy()
-    expect(screen.getByText(/1,234,567/)).toBeTruthy()
-    expect(screen.getByText('987,654')).toBeTruthy()
+  it('renders header, offense/defense stats, labeled resistances, skills with gem meta + dps', () => {
+    const { container } = render(<SummaryPanel summary={summary} />)
+    const text = container.textContent ?? ''
+    expect(text).toContain('Ranger')
+    expect(text).toContain('Ghost Dance')
+    expect(text).toContain('Gas Arrow')
+    expect(text).toContain('Deadly Poison')
+    expect(text).toContain('1,234,567') // full dps
+    expect(text).toContain('987,654') // per-skill dps
+    expect(text).toContain('3,000') // life
+    expect(text).toContain('fire 75') // labeled resistance
+    expect(text).toContain('20/0') // gem level/quality
   })
 })
