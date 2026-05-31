@@ -118,7 +118,7 @@ async function main() {
     dbg(`[http] <- handleRequest done\n`)
   })
 
-  // viz at /viz: dev runs vite in middleware mode on this same server (hmr over
+  // viz at / (root): dev runs vite in middleware mode on this same server (hmr over
   // the shared http server); prod serves the prebuilt bundle. detect by where we
   // run from -> src/ under tsx (dev), dist/ under node (prod).
   const server = http.createServer(app)
@@ -132,11 +132,11 @@ async function main() {
     })
     app.use(vite.middlewares)
   } else {
-    app.use('/viz', express.static(path.resolve(__dirname, '..', 'web', 'dist')))
+    app.use(express.static(path.resolve(__dirname, '..', 'web', 'dist')))
   }
 
   server.listen(PORT, () => {
-    console.log(`poe2-mcp listening on http://localhost:${PORT}/mcp${isDev ? ' (viz dev /viz)' : ''}`)
+    console.log(`poe2-mcp listening on http://localhost:${PORT} (viz: /, mcp: /mcp)`)
   })
   // crash loudly if the bind fails (EADDRINUSE etc) — silent failure causes
   // confusing "the server appears up but my requests hang" sessions when a

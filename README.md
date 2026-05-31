@@ -33,7 +33,7 @@ npm run dev     # development: tsx watch, port 3000
 npm run build && npm start   # production
 ```
 
-The server listens on `http://localhost:3000/mcp` (MCP endpoint) and serves the viz at `http://localhost:3000/viz` if you ran `npm run build:web`.
+The server listens on `http://localhost:3000/mcp` (MCP endpoint) and serves the viz at `http://localhost:3000` (live in `npm run dev`, or from the built bundle after `npm run build:web`).
 
 ## Connect to Claude Code
 
@@ -117,7 +117,7 @@ The search runs server-side and survives client disconnect, so long runs don't h
 
 ## Live tree-viz companion
 
-A read-only browser view of the GA search, served at `http://localhost:3000/viz`.
+A read-only browser view of the GA search, served at `http://localhost:3000`.
 
 - Build it once with `npm run build:web`, then start the server. The page renders the full passive tree; as Claude runs a search, the allocated set **morphs each generation** (newly-added nodes flash), a score chart climbs, and a stats panel shows champion-vs-initial deltas.
 - It's an observer only — there are no controls. Claude/MCP drives the search; the browser just watches. Open or refresh it mid-search and it replays history then continues live.
