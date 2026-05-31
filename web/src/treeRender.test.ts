@@ -4,12 +4,13 @@ import { GOLD, DIM, SET1, SET2 } from './nodeStyle.js'
 import type { TreeNode } from './types.js'
 
 describe('edgeColor', () => {
-  it('dim unlit, gold lit-normal, red/green for a shared weapon set, gold for mixed', () => {
+  it('dim unlit, gold for normal, weapon-set color when either endpoint is in a set', () => {
     expect(edgeColor(false, 0, 0)).toBe(DIM)
     expect(edgeColor(true, 0, 0)).toBe(GOLD)
     expect(edgeColor(true, 1, 1)).toBe(SET1)
     expect(edgeColor(true, 2, 2)).toBe(SET2)
-    expect(edgeColor(true, 1, 0)).toBe(GOLD)
+    expect(edgeColor(true, 1, 0)).toBe(SET1)
+    expect(edgeColor(true, 0, 2)).toBe(SET2)
   })
 })
 

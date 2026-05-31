@@ -8,15 +8,17 @@ export interface Camera {
   y: number
 }
 
-// lit (both ends allocated) -> gold, unless both ends share a weapon set (red/green)
+// lit (both ends allocated) -> gold, unless an end is a weapon-set node. the edge
+// connecting the normal tree to a weapon-set node is part of the set's path, so
+// either endpoint colors it red/green.
 export function edgeColor(lit: boolean, ma: number, mb: number): string {
   if (!lit) {
     return DIM
   }
-  if (ma === 1 && mb === 1) {
+  if (ma === 1 || mb === 1) {
     return SET1
   }
-  if (ma === 2 && mb === 2) {
+  if (ma === 2 || mb === 2) {
     return SET2
   }
   return GOLD
