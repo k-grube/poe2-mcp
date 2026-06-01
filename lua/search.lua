@@ -45,6 +45,34 @@ function search.pob_count()
   return 0
 end
 
+-- weapon-set points (allocMode 1/2) are separate pools that convert regular points.
+-- captured from the loaded build at search start; the GA optimizes placement within
+-- each pool and never exceeds the character's ws points or shifts them across pools.
+search.ws_budget = { [1] = 0, [2] = 0 }
+
+function search.ws_used(mode)
+  if not (build.spec and build.spec.CountAllocNodes) then return 0 end
+  local _u, _a, _s, _so, ws1, ws2 = build.spec:CountAllocNodes()
+  if mode == 1 then return ws1 end
+  if mode == 2 then return ws2 end
+  return 0
+end
+
+-- alloc node in the given pool (0 normal, 1/2 weapon set), respecting the total
+-- budget and, for weapon sets, the pool cap. returns true if it allocated.
+function search.alloc_in_mode(node, mode, budget)
+  if not node or node.alloc then return false end
+  if search.pob_count() >= budget then return false end
+  if mode and mode > 0 and search.ws_used(mode) >= (search.ws_budget[mode] or 0) then
+    return false
+  end
+  local prev = build.spec.allocMode
+  build.spec.allocMode = mode or 0
+  pcall(function() build.spec:AllocNode(node) end)
+  build.spec.allocMode = prev
+  return node.alloc == true
+end
+
 function search.rebuild()
   build.buildFlag = true
   pcall(function() build.calcsTab:BuildOutput() end)
@@ -109,30 +137,26 @@ function search.top_unallocated(stat, max_hops, n)
 end
 
 -- allocated nodes that are true leaves (depends contains only self).
--- excludes class start, ascend start, ascendancy, and weapon-set nodes -- all pinned.
--- weapon-set points (allocMode 1/2) are a separate pool; the GA optimizes the normal
--- tree only, so it must never dealloc them and spend the freed point on a normal node.
+-- excludes class start, ascend start, ascendancy (pinned). weapon-set nodes are
+-- included; the ops capture each node's allocMode and realloc the freed point in the
+-- same pool, so weapon-set placements get optimized without crossing pools.
 function search.true_leaves()
   local r = {}
   if not (build.spec and build.spec.allocNodes) then return r end
   for id, node in pairs(build.spec.allocNodes) do
     if node.type ~= "ClassStart" and node.type ~= "AscendClassStart"
-       and not node.ascendancyName and (node.allocMode or 0) == 0
-       and node.depends and #node.depends == 1 then
+       and not node.ascendancyName and node.depends and #node.depends == 1 then
       r[#r+1] = id
     end
   end
   return r
 end
 
--- weapon-set notables (allocMode 1/2) are pinned too -- separate point pool.
 function search.allocated_notables()
   local r = {}
   if not (build.spec and build.spec.allocNodes) then return r end
   for id, node in pairs(build.spec.allocNodes) do
-    if node.isNotable and not node.ascendancyName and (node.allocMode or 0) == 0 then
-      r[#r+1] = id
-    end
+    if node.isNotable and not node.ascendancyName then r[#r+1] = id end
   end
   return r
 end
@@ -172,14 +196,15 @@ function search.op_leaf_swap(_objective)
   local pick = leaves[math.random(#leaves)]
   local node = build.spec.allocNodes[pick]
   if not node then return nil, "leaf gone" end
+  local mode = node.allocMode or 0 -- realloc the freed point in the same pool
+  local budget = search.pob_count()
   pcall(function() build.spec:DeallocNode(node) end)
   local candidates = search.adjacent_unallocated(2)
   local added
   if #candidates > 0 then
     local target_id = candidates[math.random(#candidates)]
     local t = build.spec.nodes[target_id]
-    if t then
-      pcall(function() build.spec:AllocNode(t) end)
+    if search.alloc_in_mode(t, mode, budget) then
       build.spec:BuildAllDependsAndPaths()
       added = target_id
     end
@@ -195,6 +220,7 @@ function search.op_notable_swap(objective, budget)
   local pick = notables[math.random(#notables)]
   local node = build.spec.allocNodes[pick]
   if not node then return nil, "notable gone" end
+  local mode = node.allocMode or 0 -- refill the freed points in the same pool
   local before = search.pob_count()
   pcall(function() build.spec:DeallocNode(node) end)
   local after_dealloc = search.pob_count()
@@ -210,9 +236,7 @@ function search.op_notable_swap(objective, budget)
   local added = {}
   for _, cand in ipairs(candidates) do
     if search.pob_count() >= budget then break end
-    local t = build.spec.nodes[cand.id]
-    if t and not t.alloc then
-      pcall(function() build.spec:AllocNode(t) end)
+    if search.alloc_in_mode(build.spec.nodes[cand.id], mode, budget) then
       added[#added+1] = cand.id
     end
   end
@@ -235,6 +259,7 @@ function search.op_subtree_swap(objective, budget)
   local pick = with_deps[math.random(pool)].id
   local node = build.spec.allocNodes[pick]
   if not node then return nil, "head gone" end
+  local mode = node.allocMode or 0 -- refill the freed points in the same pool
   local before = search.pob_count()
   pcall(function() build.spec:DeallocNode(node) end)
   local after_dealloc = search.pob_count()
@@ -248,9 +273,7 @@ function search.op_subtree_swap(objective, budget)
   local added = {}
   for _, cand in ipairs(candidates) do
     if search.pob_count() >= budget then break end
-    local t = build.spec.nodes[cand.id]
-    if t and not t.alloc then
-      pcall(function() build.spec:AllocNode(t) end)
+    if search.alloc_in_mode(build.spec.nodes[cand.id], mode, budget) then
       added[#added+1] = cand.id
     end
   end
@@ -522,6 +545,7 @@ function ga.init_state(args)
   end
   local base_xml = build:SaveDB("code")
   local point_budget = tonumber(args.point_budget) or search.pob_count()
+  search.ws_budget = { [1] = search.ws_used(1), [2] = search.ws_used(2) }
 
   local ops = ga.pob_ops(stats_keys, obj, constraints, base_xml, point_budget, hc_depth)
   local state = ga.seed({
