@@ -181,11 +181,19 @@ local function build_info()
   local b = build
   local sg = b.skillsTab and b.skillsTab.socketGroupList and b.skillsTab.socketGroupList[b.mainSocketGroup]
   local skill = sg and sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
+  -- weapon-set point cap: campaign quest points (24) + 1 per level (level-1 from leveling)
+  local weapon_sets
+  if b.spec and b.spec.CountAllocNodes then
+    local _u, _a, _sa, _so, ws1, ws2 = b.spec:CountAllocNodes()
+    local leveled = math.max((b.characterLevel or 1) - 1, 0)
+    weapon_sets = { set1 = ws1, set2 = ws2, max = (b.maxWeaponSets or 24) + leveled }
+  end
   return {
     class_name = (b.spec and b.spec.curClassName) or "unknown",
     ascendancy = (b.spec and b.spec.curAscendClassName) or "none",
     level      = b.characterLevel or 0,
     main_skill = (skill and skill.activeEffect and skill.activeEffect.grantedEffect and skill.activeEffect.grantedEffect.name) or "unknown",
+    weapon_sets = weapon_sets,
   }
 end
 

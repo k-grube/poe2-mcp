@@ -57,6 +57,8 @@ export interface BuildInfo {
   ascendancy: string
   level: number
   main_skill: string
+  // weapon-set points per pool, max = campaign cap (24) + 1 per level
+  weapon_sets?: { set1: number; set2: number; max: number } | null
 }
 
 export interface Gem {

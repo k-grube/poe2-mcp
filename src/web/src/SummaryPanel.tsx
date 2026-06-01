@@ -1,4 +1,5 @@
 import type { BuildSummary, SocketGroup, Gem } from './types.js'
+import { SET1, SET2 } from './nodeStyle.js'
 
 const fmt = (n: unknown): string => (typeof n === 'number' ? Math.round(n).toLocaleString() : '-')
 
@@ -129,6 +130,18 @@ export function SummaryPanel({ summary }: { summary: BuildSummary }) {
       ))}
 
       <div style={head}>tree · {tree.points_used} pts</div>
+      {info.weapon_sets && info.weapon_sets.max > 0 ? (
+        <div style={{ marginBottom: 2 }}>
+          weapon sets:{' '}
+          <span style={{ color: SET1 }}>
+            set 1 {info.weapon_sets.set1}/{info.weapon_sets.max}
+          </span>{' '}
+          ·{' '}
+          <span style={{ color: SET2 }}>
+            set 2 {info.weapon_sets.set2}/{info.weapon_sets.max}
+          </span>
+        </div>
+      ) : null}
       <div>keystones: {tree.keystones.join(', ') || '-'}</div>
       <div style={{ opacity: 0.7 }}>notables: {tree.notables.join(', ') || '-'}</div>
     </div>
