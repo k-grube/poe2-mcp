@@ -109,24 +109,30 @@ function search.top_unallocated(stat, max_hops, n)
 end
 
 -- allocated nodes that are true leaves (depends contains only self).
--- excludes class start, ascend start, ascendancy nodes (those are pinned).
+-- excludes class start, ascend start, ascendancy, and weapon-set nodes -- all pinned.
+-- weapon-set points (allocMode 1/2) are a separate pool; the GA optimizes the normal
+-- tree only, so it must never dealloc them and spend the freed point on a normal node.
 function search.true_leaves()
   local r = {}
   if not (build.spec and build.spec.allocNodes) then return r end
   for id, node in pairs(build.spec.allocNodes) do
     if node.type ~= "ClassStart" and node.type ~= "AscendClassStart"
-       and not node.ascendancyName and node.depends and #node.depends == 1 then
+       and not node.ascendancyName and (node.allocMode or 0) == 0
+       and node.depends and #node.depends == 1 then
       r[#r+1] = id
     end
   end
   return r
 end
 
+-- weapon-set notables (allocMode 1/2) are pinned too -- separate point pool.
 function search.allocated_notables()
   local r = {}
   if not (build.spec and build.spec.allocNodes) then return r end
   for id, node in pairs(build.spec.allocNodes) do
-    if node.isNotable and not node.ascendancyName then r[#r+1] = id end
+    if node.isNotable and not node.ascendancyName and (node.allocMode or 0) == 0 then
+      r[#r+1] = id
+    end
   end
   return r
 end
