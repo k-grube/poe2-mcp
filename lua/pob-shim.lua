@@ -102,6 +102,19 @@ handlers["get_socket_groups"] = function(_args)
   if build.skillsTab and build.skillsTab.socketGroupList then
     for i, sg in ipairs(build.skillsTab.socketGroupList) do
       local main_skill = sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
+      local gems = {}
+      if sg.gemList then
+        for _, gem in ipairs(sg.gemList) do
+          local ge = gem.grantedEffect or (gem.gemData and gem.gemData.grantedEffect)
+          gems[#gems+1] = {
+            name    = (ge and ge.name) or gem.nameSpec or "?",
+            support = (ge and ge.support) == true,
+            enabled = gem.enabled ~= false,
+            level   = gem.level,
+            quality = gem.quality,
+          }
+        end
+      end
       groups[#groups+1] = {
         index               = i,
         label               = sg.label,
@@ -112,6 +125,7 @@ handlers["get_socket_groups"] = function(_args)
         source              = sg.source,
         main_skill_name     = main_skill and main_skill.activeEffect and main_skill.activeEffect.grantedEffect and main_skill.activeEffect.grantedEffect.name,
         gem_count           = sg.gemList and #sg.gemList or 0,
+        gems                = gems,
       }
     end
   end
@@ -162,6 +176,27 @@ handlers["set_full_dps_inclusion"] = function(args)
   return {ok = true, data = {touched_indices = touched, included = include}}
 end
 
+-- header fields shared by load_build and get_build_info
+local function build_info()
+  local b = build
+  local sg = b.skillsTab and b.skillsTab.socketGroupList and b.skillsTab.socketGroupList[b.mainSocketGroup]
+  local skill = sg and sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
+  -- weapon-set point cap: campaign quest points (24) + conversions (Weapon Master)
+  local weapon_sets
+  if b.spec and b.spec.CountAllocNodes then
+    local _u, _a, _sa, _so, ws1, ws2 = b.spec:CountAllocNodes()
+    local extra = (b.calcsTab and b.calcsTab.mainOutput and b.calcsTab.mainOutput.PassivePointsToWeaponSetPoints) or 0
+    weapon_sets = { set1 = ws1, set2 = ws2, max = (b.maxWeaponSets or 24) + extra }
+  end
+  return {
+    class_name = (b.spec and b.spec.curClassName) or "unknown",
+    ascendancy = (b.spec and b.spec.curAscendClassName) or "none",
+    level      = b.characterLevel or 0,
+    main_skill = (skill and skill.activeEffect and skill.activeEffect.grantedEffect and skill.activeEffect.grantedEffect.name) or "unknown",
+    weapon_sets = weapon_sets,
+  }
+end
+
 -- node side handles base64+zlib decode; this handler only sees raw XML
 handlers["load_build"] = function(args)
   local xml = args and args.code
@@ -176,15 +211,12 @@ handlers["load_build"] = function(args)
     pcall(function() mainObject:OnFrame() end)
   end
   loaded = true
-  local b = build
-  local sg = b.skillsTab and b.skillsTab.socketGroupList and b.skillsTab.socketGroupList[b.mainSocketGroup]
-  local skill = sg and sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
-  return {ok = true, data = {
-    class_name  = (b.spec and b.spec.curClassName) or "unknown",
-    ascendancy  = (b.spec and b.spec.curAscendClassName) or "none",
-    level       = b.characterLevel or 0,
-    main_skill  = (skill and skill.activeEffect and skill.activeEffect.grantedEffect and skill.activeEffect.grantedEffect.name) or "unknown",
-  }}
+  return {ok = true, data = build_info()}
+end
+
+handlers["get_build_info"] = function(_args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  return {ok = true, data = build_info()}
 end
 
 handlers["get_dps"] = function(_args)
@@ -291,16 +323,21 @@ handlers["get_tree_summary"] = function(_args)
   local spec = build.spec
   if not spec then return {ok = false, error = "no passive spec loaded"} end
   local keystones, notables = {}, {}
-  local points_used = 0
   if spec.allocNodes then
     for _, node in pairs(spec.allocNodes) do
-      points_used = points_used + 1
       if node.isKeystone then
         keystones[#keystones+1] = node.name or "?"
       elseif node.isNotable then
         notables[#notables+1] = node.name or "?"
       end
     end
+  end
+  -- normal passive points as PoB shows them: non-ascendancy/non-start nodes less
+  -- the shared weapon-set allocation (weapon-set points have their own indicator)
+  local points_used = 0
+  if spec.CountAllocNodes then
+    local used, _asc, _sasc, _sock, ws1, ws2 = spec:CountAllocNodes()
+    points_used = used - math.min(ws1 or 0, ws2 or 0)
   end
   return {ok = true, data = {
     points_used = points_used,
@@ -341,6 +378,7 @@ handlers["get_allocated_nodes"] = function(_args)
         type       = node_type(node),
         ascendancy = node.ascendancyName,
         stats      = node.sd, -- short description / stat lines
+        alloc_mode = node.allocMode or 0, -- 0 normal, 1 weapon set 1, 2 weapon set 2
       }
     end
   end
@@ -553,6 +591,7 @@ handlers["search_step"] = function(_args)
     champion_score = entry.champion_score,
     elapsed_s = entry.elapsed_s,
     champion_node_ids = state.champion.node_ids,
+    champion_node_modes = state.champion.node_modes,
     champion_stats = state.champion.stats,
     points_used = state.champion.points_used,
   }

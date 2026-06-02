@@ -5,7 +5,7 @@ export const { definition: getDefinition, handler: getHandler } = defineTool(
   {
     name: 'get_socket_groups',
     description:
-      'List all socket groups in the loaded build. Each entry has index (1-based), label, enabled, include_in_full_dps, is_main, slot, source, main_skill_name, gem_count. Also returns main_socket_group (index of the group `get_dps` uses for main_*). Call load_build first.',
+      'List all socket groups in the loaded build. Each entry has index (1-based), label, enabled, include_in_full_dps, is_main, slot, source, main_skill_name, gem_count. Also returns main_socket_group (index of the group `get_dps` uses for main_*). Each group also includes gems[] (name, support, enabled, level, quality) listing its skill and support gems. Call load_build first.',
     inputSchema: { type: 'object' as const, properties: {}, required: [] },
   },
   bridgeCmd('get_socket_groups'),

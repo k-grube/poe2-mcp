@@ -123,6 +123,7 @@ export function computeStepTransition(job: SearchJob, input: StepInput): StepTra
     champion_score: d.champion_score,
     elapsed_s: d.elapsed_s,
     champion_node_ids: d.champion_node_ids,
+    champion_node_modes: d.champion_node_modes ?? [],
     champion_stats: d.champion_stats,
     points_used: d.points_used,
   }

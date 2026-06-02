@@ -1,0 +1,53 @@
+import { describe, it, expect, vi } from 'vitest'
+import type { LuaBridge } from '../../src/lua-bridge.js'
+import { getBuildSummary } from '../../src/ops/build-summary.js'
+
+function bridgeReturning(byCmd: Record<string, unknown>): LuaBridge {
+  const send = vi.fn(async ({ cmd }: { cmd: string }) => {
+    if (!(cmd in byCmd)) {
+      throw new Error(`no build loaded`)
+    }
+    return { ok: true, data: byCmd[cmd] }
+  })
+  return { send } as unknown as LuaBridge
+}
+
+describe('getBuildSummary', () => {
+  it('enables full-dps inclusion then aggregates the per-area handlers', async () => {
+    const bridge = bridgeReturning({
+      get_build_info: { class_name: 'Witch', ascendancy: 'Infernalist', level: 90, main_skill: 'Fireball' },
+      set_full_dps_inclusion: { touched_indices: [1], included: true },
+      get_dps: { full_dps: 123 },
+      get_ehp: { total_ehp: 456 },
+      get_breakpoints: { fire_res: 75 },
+      get_tree_summary: { points_used: 100, keystones: ['Chaos Inoculation'], notables: [] },
+      get_socket_groups: { groups: [], main_socket_group: 1 },
+      get_allocated_nodes: {
+        nodes: [
+          { id: 5, alloc_mode: 0 },
+          { id: 9, alloc_mode: 1 },
+        ],
+      },
+    })
+    const out = (await getBuildSummary(bridge, undefined)) as {
+      info: { class_name: string }
+      dps: { full_dps: number }
+      allocated_nodes: Array<{ id: number; alloc_mode: number }>
+    }
+    expect(out.info.class_name).toBe('Witch')
+    expect(out.dps.full_dps).toBe(123)
+    expect(out.allocated_nodes).toEqual([
+      { id: 5, alloc_mode: 0 },
+      { id: 9, alloc_mode: 1 },
+    ])
+    expect(vi.mocked(bridge.send)).toHaveBeenCalledWith({
+      cmd: 'set_full_dps_inclusion',
+      args: { all_enabled: true, included: true },
+    })
+  })
+
+  it('propagates a no-build error from the first call', async () => {
+    const bridge = bridgeReturning({})
+    await expect(getBuildSummary(bridge, undefined)).rejects.toThrow('no build loaded')
+  })
+})

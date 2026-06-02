@@ -13,6 +13,11 @@ import { toolDefinitions, dispatchTool } from './tools/registry.js'
 import { searchEvents, getActiveJob } from './search-jobs.js'
 import { snapshotOf, sseLine } from './sse.js'
 import { createTreeLayoutHandler } from './tree-layout.js'
+import { httpRoute } from './http-route.js'
+import { loadBuild } from './ops/load-build.js'
+import { getBuildSummary } from './ops/build-summary.js'
+import { searchStart, searchCancel } from './ops/search.js'
+import { getActiveBuild, buildEvents } from './active-build.js'
 import { dbg } from './debug.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -44,6 +49,19 @@ async function main() {
   app.use(express.json())
 
   app.get('/api/tree-layout', createTreeLayoutHandler(bridge))
+  app.post(
+    '/api/load-build',
+    httpRoute(bridge, loadBuild, (req) => req.body),
+  )
+  app.get('/api/build-summary', httpRoute(bridge, getBuildSummary))
+  app.post(
+    '/api/search',
+    httpRoute(bridge, searchStart, (req) => req.body),
+  )
+  app.post(
+    '/api/search/cancel',
+    httpRoute(bridge, searchCancel, (req) => req.body),
+  )
 
   app.get('/events', (req, res) => {
     res.writeHead(200, {
@@ -51,7 +69,7 @@ async function main() {
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     })
-    res.write(sseLine('snapshot', snapshotOf(getActiveJob())))
+    res.write(sseLine('snapshot', snapshotOf(getActiveJob(), getActiveBuild())))
 
     const onStart = (e: unknown) => res.write(sseLine('start', e))
     const onGen = (e: unknown) => res.write(sseLine('gen', e))
@@ -59,6 +77,8 @@ async function main() {
     searchEvents.on('start', onStart)
     searchEvents.on('gen', onGen)
     searchEvents.on('end', onEnd)
+    const onBuild = (e: unknown) => res.write(sseLine('build', e))
+    buildEvents.on('build', onBuild)
 
     const heartbeat = setInterval(() => res.write(': ping\n\n'), 15_000)
 
@@ -67,6 +87,7 @@ async function main() {
       searchEvents.off('start', onStart)
       searchEvents.off('gen', onGen)
       searchEvents.off('end', onEnd)
+      buildEvents.off('build', onBuild)
     })
   })
 
@@ -106,7 +127,7 @@ async function main() {
     dbg(`[http] <- handleRequest done\n`)
   })
 
-  // viz at /viz: dev runs vite in middleware mode on this same server (hmr over
+  // viz at / (root): dev runs vite in middleware mode on this same server (hmr over
   // the shared http server); prod serves the prebuilt bundle. detect by where we
   // run from -> src/ under tsx (dev), dist/ under node (prod).
   const server = http.createServer(app)
@@ -120,11 +141,11 @@ async function main() {
     })
     app.use(vite.middlewares)
   } else {
-    app.use('/viz', express.static(path.resolve(__dirname, '..', 'web', 'dist')))
+    app.use(express.static(path.resolve(__dirname, '..', 'src', 'web', 'dist')))
   }
 
   server.listen(PORT, () => {
-    console.log(`poe2-mcp listening on http://localhost:${PORT}/mcp${isDev ? ' (viz dev /viz)' : ''}`)
+    console.log(`poe2-mcp listening on http://localhost:${PORT} (viz: /, mcp: /mcp)`)
   })
   // crash loudly if the bind fails (EADDRINUSE etc) — silent failure causes
   // confusing "the server appears up but my requests hang" sessions when a

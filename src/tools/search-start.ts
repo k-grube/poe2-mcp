@@ -1,5 +1,5 @@
-import { SearchInputSchema, searchInputProperties } from './search-schema.js'
-import { startSearch } from '../search-jobs.js'
+import { searchInputProperties } from './search-schema.js'
+import { searchStart } from '../ops/search.js'
 import { defineTool } from './define-tool.js'
 
 export const { definition, handler } = defineTool(
@@ -12,14 +12,5 @@ export const { definition, handler } = defineTool(
       'Call load_build first.',
     inputSchema: { type: 'object' as const, properties: searchInputProperties, required: ['objective'] },
   },
-  async (bridge, args) => {
-    const parsed = SearchInputSchema.parse(args)
-    const job = await startSearch(bridge, parsed)
-    return {
-      job_id: job.id,
-      status: job.status,
-      total_generations: job.totalGenerations,
-      initial_score: job.initial?.score ?? null,
-    }
-  },
+  searchStart,
 )

@@ -31,11 +31,15 @@ import { definition as searchStartDef, handler as searchStartHandler } from './s
 import { definition as searchStatusDef, handler as searchStatusHandler } from './search-status.js'
 import { definition as searchResultDef, handler as searchResultHandler } from './search-result.js'
 import { definition as searchCancelDef, handler as searchCancelHandler } from './search-cancel.js'
+import { definition as buildInfoDef, handler as buildInfoHandler } from './build-info.js'
+import { definition as buildSummaryDef, handler as buildSummaryHandler } from './build-summary.js'
 
 type Handler = (bridge: LuaBridge, args: unknown) => Promise<CallToolResult>
 
 const entries: Array<{ definition: Tool; handler: Handler }> = [
   { definition: loadBuildDef, handler: loadBuildHandler },
+  { definition: buildInfoDef, handler: buildInfoHandler },
+  { definition: buildSummaryDef, handler: buildSummaryHandler },
   { definition: dpsDef, handler: dpsHandler },
   { definition: ehpDef, handler: ehpHandler },
   { definition: bpDef, handler: bpHandler },

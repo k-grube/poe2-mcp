@@ -20,7 +20,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "prepare": "husky",
-    "build:web": "tsc -p web/tsconfig.json && vite build"
+    "build:web": "tsc -p src/web/tsconfig.json && vite build",
+    "typecheck": "tsc --noEmit && tsc -p src/web/tsconfig.json --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
