@@ -181,12 +181,12 @@ local function build_info()
   local b = build
   local sg = b.skillsTab and b.skillsTab.socketGroupList and b.skillsTab.socketGroupList[b.mainSocketGroup]
   local skill = sg and sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
-  -- weapon-set point cap: campaign quest points (24) + 1 per level (level-1 from leveling)
+  -- weapon-set point cap: campaign quest points (24) + conversions (Weapon Master)
   local weapon_sets
   if b.spec and b.spec.CountAllocNodes then
     local _u, _a, _sa, _so, ws1, ws2 = b.spec:CountAllocNodes()
-    local leveled = math.max((b.characterLevel or 1) - 1, 0)
-    weapon_sets = { set1 = ws1, set2 = ws2, max = (b.maxWeaponSets or 24) + leveled }
+    local extra = (b.calcsTab and b.calcsTab.mainOutput and b.calcsTab.mainOutput.PassivePointsToWeaponSetPoints) or 0
+    weapon_sets = { set1 = ws1, set2 = ws2, max = (b.maxWeaponSets or 24) + extra }
   end
   return {
     class_name = (b.spec and b.spec.curClassName) or "unknown",
@@ -323,16 +323,21 @@ handlers["get_tree_summary"] = function(_args)
   local spec = build.spec
   if not spec then return {ok = false, error = "no passive spec loaded"} end
   local keystones, notables = {}, {}
-  local points_used = 0
   if spec.allocNodes then
     for _, node in pairs(spec.allocNodes) do
-      points_used = points_used + 1
       if node.isKeystone then
         keystones[#keystones+1] = node.name or "?"
       elseif node.isNotable then
         notables[#notables+1] = node.name or "?"
       end
     end
+  end
+  -- normal passive points as PoB shows them: non-ascendancy/non-start nodes less
+  -- the shared weapon-set allocation (weapon-set points have their own indicator)
+  local points_used = 0
+  if spec.CountAllocNodes then
+    local used, _asc, _sasc, _sock, ws1, ws2 = spec:CountAllocNodes()
+    points_used = used - math.min(ws1 or 0, ws2 or 0)
   end
   return {ok = true, data = {
     points_used = points_used,
@@ -586,6 +591,7 @@ handlers["search_step"] = function(_args)
     champion_score = entry.champion_score,
     elapsed_s = entry.elapsed_s,
     champion_node_ids = state.champion.node_ids,
+    champion_node_modes = state.champion.node_modes,
     champion_stats = state.champion.stats,
     points_used = state.champion.points_used,
   }

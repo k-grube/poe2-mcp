@@ -16,6 +16,7 @@ export interface StreamState {
   totalGenerations: number
   scoreHistory: ScorePoint[]
   championNodeIds: Set<number>
+  championModes: Map<number, number>
   prevNodeIds: Set<number>
   championStats: Record<string, number>
   initial: { score: number; stats: Record<string, number> } | null
@@ -31,6 +32,7 @@ export const initialState: StreamState = {
   totalGenerations: 0,
   scoreHistory: [],
   championNodeIds: new Set(),
+  championModes: new Map(),
   prevNodeIds: new Set(),
   championStats: {},
   initial: null,
@@ -54,6 +56,9 @@ const point = (t: TrajectoryEntry): ScorePoint => ({
   elapsed: t.elapsed_s,
 })
 
+const modeMap = (modes: { id: number; mode: number }[]): Map<number, number> =>
+  new Map(modes.map((m) => [m.id, m.mode]))
+
 export function reduce(state: StreamState, action: Action): StreamState {
   switch (action.type) {
     case 'snapshot': {
@@ -67,6 +72,7 @@ export function reduce(state: StreamState, action: Action): StreamState {
         initial: e.initial,
         scoreHistory: e.trajectory.map(point),
         championNodeIds: new Set(e.champion_node_ids),
+        championModes: modeMap(e.champion_node_modes ?? []),
         prevNodeIds: new Set(),
         championStats: last?.champion_stats ?? {},
         generation: last?.generation ?? 0,
@@ -95,6 +101,7 @@ export function reduce(state: StreamState, action: Action): StreamState {
         scoreHistory: [...state.scoreHistory, point(e)],
         prevNodeIds: state.championNodeIds,
         championNodeIds: new Set(e.champion_node_ids),
+        championModes: modeMap(e.champion_node_modes ?? []),
         championStats: e.champion_stats,
         pointsUsed: e.points_used,
       }

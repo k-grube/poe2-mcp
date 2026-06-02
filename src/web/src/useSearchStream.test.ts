@@ -9,6 +9,7 @@ const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
   initial: { score: 100, stats: { FullDPS: 100 } },
   trajectory: [],
   champion_node_ids: [],
+  champion_node_modes: [],
   error: null,
   build: null,
   ...over,
@@ -23,6 +24,7 @@ const gen = (g: number, ids: number[]): GenEvent => ({
   champion_score: g * 10,
   elapsed_s: g,
   champion_node_ids: ids,
+  champion_node_modes: [],
   champion_stats: { FullDPS: g * 10 },
   points_used: 100 + g,
 })

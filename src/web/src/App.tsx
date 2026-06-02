@@ -34,6 +34,8 @@ export function App() {
   const shownNodeIds = showBaseline ? baselineSet : champion
   const ghostNodeIds = showBaseline ? EMPTY : removed
   const addedNodeIds = showBaseline ? EMPTY : added
+  // champion carries its own weapon-set modes; baseline view uses the summary's
+  const shownModes = showBaseline ? allocModes : stream.championModes
 
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex' }}>
@@ -46,7 +48,7 @@ export function App() {
               championNodeIds={shownNodeIds}
               addedNodeIds={addedNodeIds}
               ghostNodeIds={ghostNodeIds}
-              allocModes={allocModes}
+              allocModes={shownModes}
               onHoverId={(id) => setHover(id === null ? null : (byId.get(id) ?? null))}
             />
             <Hud state={stream} hover={hover} />

@@ -13,6 +13,7 @@ export function snapshotOf(job: SearchJob | null, build: BuildInfo | null = null
       initial: null,
       trajectory: [],
       champion_node_ids: [],
+      champion_node_modes: [],
       error: null,
       build,
     }
@@ -25,6 +26,7 @@ export function snapshotOf(job: SearchJob | null, build: BuildInfo | null = null
     initial: job.initial,
     trajectory: job.trajectory,
     champion_node_ids: latest?.champion_node_ids ?? [],
+    champion_node_modes: latest?.champion_node_modes ?? [],
     error: job.error,
     build,
   }
