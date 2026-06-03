@@ -84,4 +84,54 @@ function gem.score(objective)
   return 0
 end
 
+-- socket count for a group: idealized = 5, as-imported = the support slots the build's
+-- active gem currently exposes.
+function gem.socket_count(group, mode)
+  if mode.idealized then return 5 end
+  local n = 0
+  for _, inst in ipairs(group.gemList) do
+    local ge = inst.grantedEffect or (inst.gemData and inst.gemData.grantedEffect)
+    if ge and ge.support then n = n + 1 end
+  end
+  return n
+end
+
+-- shared lineage budget: remaining slots for a family (cap until first spent, then tracked).
+local function lineage_remaining(lineage, family, cap)
+  if lineage[family] == nil then return cap or 1 end
+  return lineage[family]
+end
+
+-- greedy forward-selection for one group. adds the best-scoring valid support each round
+-- until k sockets fill. `lineage` is a shared { family -> remaining } budget across skills;
+-- only lineage picks consume it (non-lineage supports carry a family tag but don't). returns
+-- the chosen support ids + final score.
+function gem.greedy(group, objective, mode, lineage, cap)
+  local pool = gem.valid_supports(group, mode)
+  local k = gem.socket_count(group, mode)
+  local chosen, chosen_set = {}, {}
+  for _ = 1, k do
+    local best_id, best_family, best_lineage, best_score = nil, nil, false, -math.huge
+    for _, s in ipairs(pool) do
+      local lineage_ok = not s.lineage or not s.family or lineage_remaining(lineage, s.family, cap) > 0
+      if not chosen_set[s.id] and lineage_ok then
+        local trial = {}
+        for _, id in ipairs(chosen) do trial[#trial+1] = id end
+        trial[#trial+1] = s.id
+        gem.set_supports(group, trial, mode)
+        local sc = gem.score(objective)
+        if sc > best_score then best_id, best_family, best_lineage, best_score = s.id, s.family, s.lineage, sc end
+      end
+    end
+    if not best_id then break end
+    chosen[#chosen+1] = best_id
+    chosen_set[best_id] = true
+    if best_lineage and best_family then
+      lineage[best_family] = lineage_remaining(lineage, best_family, cap) - 1
+    end
+  end
+  gem.set_supports(group, chosen, mode) -- leave the group on its greedy result
+  return chosen, gem.score(objective)
+end
+
 return gem
