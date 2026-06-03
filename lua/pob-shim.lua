@@ -565,6 +565,9 @@ end
 local engine = require("search")
 local search, ga = engine.search, engine.ga
 
+-- gem-support optimizer (see gem-search.lua)
+local gem = require("gem-search")
+
 handlers["search_tree_neighborhood"] = function(args)
   local state, err = ga.init_state(args)
   if not state then return {ok = false, error = err} end
@@ -620,6 +623,31 @@ end
 handlers["search_cancel"] = function(_args)
   active_search = nil
   return {ok = true, data = {cancelled = true}}
+end
+
+-- gem-support optimization. greedy + GA polish runs synchronously in one call (fast in-process).
+handlers["get_valid_supports"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local gi = (args and tonumber(args.group)) or build.mainSocketGroup
+  local group = build.skillsTab.socketGroupList[gi]
+  if not group then return {ok = false, error = "no such socket group"} end
+  local mode = { idealized = not (args and args.as_imported) }
+  if not mode.idealized then
+    local out = get_output()
+    mode.str, mode.dex, mode.int = out.Str or 0, out.Dex or 0, out.Int or 0
+  end
+  local list = {}
+  for _, s in ipairs(gem.valid_supports(group, mode)) do
+    list[#list+1] = { id = s.id, name = s.name, lineage = s.lineage, family = s.family }
+  end
+  return {ok = true, data = {group = gi, supports = list}}
+end
+
+handlers["gem_search"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local ok, res = pcall(function() return gem.run(args or {}) end)
+  if not ok then return {ok = false, error = tostring(res)} end
+  return {ok = true, data = res}
 end
 
 -- readline loop
