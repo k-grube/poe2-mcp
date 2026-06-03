@@ -1,6 +1,8 @@
 -- gem-support optimizer. required by pob-shim.lua. reads globals: build, get_output, calcLib.
 -- leans on PoB for the rules: canGrantedEffectSupportActiveSkill (validity), the calc's own
 -- dedup, lineageSupportGemLimitWarning (lineage), reqStr/Dex/Int + Spirit (feasibility).
+-- the search is a resumable state machine: gem.start sets up, gem.step advances one greedy
+-- socket-fill or one GA generation, gem.run drives steps to completion synchronously.
 
 local gem = {}
 
@@ -102,52 +104,76 @@ local function lineage_remaining(lineage, family, cap)
   return lineage[family]
 end
 
--- greedy forward-selection for one group. adds the best-scoring valid support each round
--- until k sockets fill. `lineage` is a shared { family -> remaining } budget across skills;
--- only lineage picks consume it (non-lineage supports carry a family tag but don't). returns
--- the chosen support ids + final score.
-function gem.greedy(group, objective, mode, lineage, cap)
-  local pool = gem.valid_supports(group, mode)
-  local k = gem.socket_count(group, mode)
-  local chosen, chosen_set = {}, {}
-  for _ = 1, k do
-    local best_id, best_family, best_lineage, best_score = nil, nil, false, -math.huge
-    for _, s in ipairs(pool) do
-      local lineage_ok = not s.lineage or not s.family or lineage_remaining(lineage, s.family, cap) > 0
-      if not chosen_set[s.id] and lineage_ok then
-        local trial = {}
-        for _, id in ipairs(chosen) do trial[#trial+1] = id end
-        trial[#trial+1] = s.id
-        gem.set_supports(group, trial, mode)
-        local sc = gem.score(objective)
-        if sc > best_score then best_id, best_family, best_lineage, best_score = s.id, s.family, s.lineage, sc end
-      end
-    end
-    if not best_id then break end
-    chosen[#chosen+1] = best_id
-    chosen_set[best_id] = true
-    if best_lineage and best_family then
-      lineage[best_family] = lineage_remaining(lineage, best_family, cap) - 1
-    end
+-- set up state for the next in-scope group, or finish. captures the before-supports (for
+-- kept/removed), the candidate pool, the socket count, and resets greedy progress.
+function gem._advance_group(state)
+  state.gi = state.gi + 1
+  local gi = state.groups[state.gi]
+  if not gi then
+    state.group, state.finished = nil, true
+    return
   end
-  gem.set_supports(group, chosen, mode) -- leave the group on its greedy result
-  return chosen, gem.score(objective)
+  local group = build.skillsTab.socketGroupList[gi]
+  state.group, state.group_index = group, gi
+  local a = gem.active_skill(group)
+  state.skill_name = (a and a.activeEffect and a.activeEffect.grantedEffect and a.activeEffect.grantedEffect.name) or "?"
+  state.prev = {}
+  for _, inst in ipairs(group.gemList) do
+    local ge = inst.grantedEffect or (inst.gemData and inst.gemData.grantedEffect)
+    if ge and ge.support and inst.gemId then state.prev[inst.gemId] = ge.name or "?" end
+  end
+  state.before_score = gem.score(state.objective)
+  state.pool = gem.valid_supports(group, state.mode)
+  state.k = gem.socket_count(group, state.mode)
+  state.chosen, state.chosen_set, state.socket = {}, {}, 0
+  state.phase, state.ga, state.gen = "greedy", nil, 0
 end
 
--- GA polish: refine one group's support set with the genome-agnostic engine (require("search").ga).
--- genome = an ordered support-id subset, fitness = recalc score (lineage violations score -inf so
--- the engine rejects them). small budget by default. returns the best set + its score.
-function gem.polish(group, objective, mode, lineage, cap, seed_ids, gens, pop_size)
+-- fill one socket: pick the best valid+budgeted support not already chosen, append it,
+-- spend the lineage budget if it was a lineage pick, leave the build on the new best.
+function gem._greedy_socket(state)
+  local best_id, best_family, best_lineage, best_score = nil, nil, false, -math.huge
+  for _, s in ipairs(state.pool) do
+    local lineage_ok = not s.lineage or not s.family or lineage_remaining(state.lineage, s.family, state.cap) > 0
+    if not state.chosen_set[s.id] and lineage_ok then
+      local trial = {}
+      for _, id in ipairs(state.chosen) do
+        trial[#trial+1] = id
+      end
+      trial[#trial+1] = s.id
+      gem.set_supports(state.group, trial, state.mode)
+      local sc = gem.score(state.objective)
+      if sc > best_score then
+        best_id, best_family, best_lineage, best_score = s.id, s.family, s.lineage, sc
+      end
+    end
+  end
+  if best_id then
+    state.chosen[#state.chosen+1] = best_id
+    state.chosen_set[best_id] = true
+    if best_lineage and best_family then
+      state.lineage[best_family] = lineage_remaining(state.lineage, best_family, state.cap) - 1
+    end
+  end
+  state.socket = state.socket + 1
+  gem.set_supports(state.group, state.chosen, state.mode)
+end
+
+-- seed the genome-agnostic GA (require("search").ga) with the greedy result. one generation
+-- is driven per step. genome = an ordered support-id subset, fitness = recalc score (lineage
+-- violations score -inf so the engine rejects them).
+function gem._polish_init(state)
   local ga = require("search").ga
-  local pool = gem.valid_supports(group, mode)
-  local k = gem.socket_count(group, mode)
+  local group, objective, mode, pool, k = state.group, state.objective, state.mode, state.pool, state.k
   local function random_set()
-    local ids, seen = {}, {}
-    local tries = 0
+    local ids, seen, tries = {}, {}, 0
     while #ids < k and tries < k * 4 do
       tries = tries + 1
       local s = pool[math.random(#pool)]
-      if s and not seen[s.id] then seen[s.id] = true; ids[#ids+1] = s.id end
+      if s and not seen[s.id] then
+        seen[s.id] = true
+        ids[#ids+1] = s.id
+      end
     end
     return ids
   end
@@ -155,6 +181,7 @@ function gem.polish(group, objective, mode, lineage, cap, seed_ids, gens, pop_si
     gem.set_supports(group, ids, mode)
     return { ids = ids, score = gem.score(objective) }
   end
+  local seed_ids = state.chosen
   local ops = {
     hc_evals = 1,
     initial = function() return capture(seed_ids) end,
@@ -162,71 +189,136 @@ function gem.polish(group, objective, mode, lineage, cap, seed_ids, gens, pop_si
     clone = function(p) return capture(p.ids) end,
     crossover = function(a, b)
       local ids, seen = {}, {}
-      for _, id in ipairs(a.ids) do if #ids < k and not seen[id] then seen[id] = true; ids[#ids+1] = id end end
-      for _, id in ipairs(b.ids) do if #ids < k and not seen[id] then seen[id] = true; ids[#ids+1] = id end end
+      for _, id in ipairs(a.ids) do
+        if #ids < k and not seen[id] then seen[id] = true; ids[#ids+1] = id end
+      end
+      for _, id in ipairs(b.ids) do
+        if #ids < k and not seen[id] then seen[id] = true; ids[#ids+1] = id end
+      end
       return capture(ids)
     end,
     mutate = function(m)
       local ids = {}
-      for _, id in ipairs(m.ids) do ids[#ids+1] = id end
+      for _, id in ipairs(m.ids) do
+        ids[#ids+1] = id
+      end
       if #ids > 0 and #pool > 0 then ids[math.random(#ids)] = pool[math.random(#pool)].id end
       return capture(ids)
     end,
     hill_climb = function(m) return m end,
   }
-  local state = ga.seed({ pop_size = pop_size or 6, generations = gens or 5, elitism = 2,
+  return ga.seed({ pop_size = state.polish_pop, generations = state.polish_gens, elitism = 2,
     crossover_rate = 0.7, tournament_size = 3 }, ops)
-  for _ = 1, (gens or 5) do ga.evolve_one(state) end
-  gem.set_supports(group, state.champion.ids, mode)
-  return state.champion.ids, gem.score(objective)
 end
 
--- orchestrate a run: pick the in-scope groups, greedy + polish each, return per-skill results.
--- args: { objective, mode = {idealized=bool}, scope = "main"|"all"|{indices} }.
-function gem.run(args)
+-- record the finished group: final supports (kept flag), the removed originals, scores.
+function gem._finalize_group(state, final_ids)
+  gem.set_supports(state.group, final_ids, state.mode)
+  local after = gem.score(state.objective)
+  local supports, kept_set = {}, {}
+  for _, id in ipairs(final_ids) do
+    kept_set[id] = true
+    local gd = build.data.gems[id]
+    local ge = gd and gd.grantedEffect
+    supports[#supports+1] = { id = id, name = (ge and ge.name) or "?", kept = state.prev[id] ~= nil }
+  end
+  local removed = {}
+  for id, name in pairs(state.prev) do
+    if not kept_set[id] then removed[#removed+1] = { id = id, name = name } end
+  end
+  state.results[#state.results+1] = {
+    group = state.group_index, main_skill = state.skill_name,
+    supports = supports, removed = removed, score = after, score_before = state.before_score,
+  }
+end
+
+-- progress snapshot for the current step (consumed by the shim/job, streamed to the viz)
+function gem._progress(state)
+  if state.finished then
+    return { done = true, results = state.results }
+  end
+  local ids = (state.phase == "polish" and state.ga) and state.ga.champion.ids or state.chosen
+  local cur = {}
+  for _, id in ipairs(ids or {}) do
+    local gd = build.data.gems[id]
+    local ge = gd and gd.grantedEffect
+    cur[#cur+1] = { id = id, name = (ge and ge.name) or "?" }
+  end
+  local best = (state.phase == "polish" and state.ga) and state.ga.champion.score or gem.score(state.objective)
+  return {
+    done = false,
+    group = state.group_index, main_skill = state.skill_name, phase = state.phase,
+    step = (state.phase == "greedy") and state.socket or state.gen,
+    total_steps = (state.phase == "greedy") and state.k or state.polish_gens,
+    best_score = best, score_before = state.before_score,
+    current_supports = cur, done_results = state.results,
+    group_ordinal = state.gi, total_groups = #state.groups,
+  }
+end
+
+-- begin a run: resolve objective/mode/scope/lineage cap, set up the first group.
+function gem.start(args)
   local objective = args.objective or { stat = "FullDPS" }
   local mode = args.mode or { idealized = true }
   if not mode.idealized then
     local out = get_output()
     mode.str, mode.dex, mode.int = out.Str or 0, out.Dex or 0, out.Int or 0
   end
-  local groups = gem.scope_groups(args.scope)
-  -- MaxLineageCount (base 1) caps lineage supports per family character-wide
   local cap = 1
   local env = build.calcsTab.mainEnv
   if env and env.modDB then
     local ok, v = pcall(function() return env.modDB:Sum("BASE", nil, "MaxLineageCount") end)
     if ok and v and v >= 1 then cap = v end
   end
-  local lineage = {}
-  local results = {}
-  for _, gi in ipairs(groups) do
+  local groups = {}
+  for _, gi in ipairs(gem.scope_groups(args.scope)) do
     local group = build.skillsTab.socketGroupList[gi]
-    if group and gem.active_skill(group) then
-      local before = gem.score(objective)
-      -- snapshot current support ids before greedy mutates the group, to mark kept vs added
-      local prev = {}
-      for _, inst in ipairs(group.gemList) do
-        local ge = inst.grantedEffect or (inst.gemData and inst.gemData.grantedEffect)
-        if ge and ge.support and inst.gemId then prev[inst.gemId] = true end
-      end
-      local active = gem.active_skill(group)
-      local skill_name = (active and active.activeEffect and active.activeEffect.grantedEffect
-        and active.activeEffect.grantedEffect.name) or "?"
-      local chosen = gem.greedy(group, objective, mode, lineage, cap)
-      local polished, after = gem.polish(group, objective, mode, lineage, cap, chosen)
-      local supports = {}
-      for _, id in ipairs(polished) do
-        local gd = build.data.gems[id]
-        local ge = gd and gd.grantedEffect
-        supports[#supports+1] = { id = id, name = (ge and ge.name) or "?", kept = prev[id] == true }
-      end
-      results[#results+1] = {
-        group = gi, main_skill = skill_name, supports = supports, score = after, score_before = before,
-      }
+    if group and gem.active_skill(group) then groups[#groups+1] = gi end
+  end
+  local state = {
+    objective = objective, mode = mode, cap = cap, lineage = {}, groups = groups, gi = 0,
+    polish_gens = tonumber(args.polish_generations) or 5,
+    polish_pop = tonumber(args.polish_population) or 6,
+    results = {}, finished = false,
+  }
+  gem._advance_group(state)
+  return state
+end
+
+-- advance one unit of work: one greedy socket, one GA generation, or finalize + advance.
+function gem.step(state)
+  if state.finished then
+    return { done = true, results = state.results }
+  end
+  if state.phase == "greedy" then
+    if state.socket < state.k then
+      gem._greedy_socket(state)
+    end
+    if state.socket >= state.k then
+      state.ga = gem._polish_init(state)
+      state.phase, state.gen = "polish", 0
+    end
+  elseif state.phase == "polish" then
+    if state.gen < state.polish_gens then
+      require("search").ga.evolve_one(state.ga)
+      state.gen = state.gen + 1
+      gem.set_supports(state.group, state.ga.champion.ids, state.mode)
+    end
+    if state.gen >= state.polish_gens then
+      gem._finalize_group(state, state.ga.champion.ids)
+      gem._advance_group(state)
     end
   end
-  return { results = results }
+  return gem._progress(state)
+end
+
+-- synchronous driver (MCP one-shot, tests): loop steps to completion.
+function gem.run(args)
+  local state = gem.start(args)
+  while not state.finished do
+    gem.step(state)
+  end
+  return { results = state.results }
 end
 
 -- resolve scope to a list of socket-group indices
