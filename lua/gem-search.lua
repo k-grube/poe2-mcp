@@ -40,4 +40,48 @@ function gem.valid_supports(group, mode)
   return out
 end
 
+-- rebuild the group's gem list as [its active gems] + [the chosen support ids], then
+-- reprocess + recalc. support_ids is an ordered list of gem DB ids. idealized stamps level
+-- 20 / quality 20 (PoB clamps support level to 1, quality is honored). ProcessSocketGroup
+-- derives skillId/nameSpec/gemData/reqs from gemId, so the instance only needs these fields.
+function gem.set_supports(group, support_ids, mode)
+  local kept = {}
+  for _, inst in ipairs(group.gemList) do
+    local ge = inst.grantedEffect or (inst.gemData and inst.gemData.grantedEffect)
+    if not (ge and ge.support) then kept[#kept+1] = inst end
+  end
+  group.gemList = kept
+  local lvl = mode.idealized and 20 or nil
+  local qual = mode.idealized and 20 or nil
+  for _, id in ipairs(support_ids) do
+    local gemData = build.data.gems[id]
+    if gemData then
+      group.gemList[#group.gemList+1] = {
+        gemId = id, level = lvl or gemData.naturalMaxLevel or 20, quality = qual or 0, enabled = true,
+      }
+    end
+  end
+  build.skillsTab:ProcessSocketGroup(group)
+  build.buildFlag = true
+  pcall(function() build.calcsTab:BuildOutput() end)
+end
+
+-- objective score of the current build state (same shape as search.lua: objective.stat or
+-- objective.weights). -inf when a lineage limit is violated, so greedy/polish reject it.
+function gem.score(objective)
+  local env = build.calcsTab.mainEnv
+  if env and env.itemWarnings and env.itemWarnings.lineageSupportGemLimitWarning
+     and #env.itemWarnings.lineageSupportGemLimitWarning > 0 then
+    return -math.huge
+  end
+  local out = get_output()
+  if objective.stat then return out[objective.stat] or 0 end
+  if objective.weights then
+    local total = 0
+    for stat, w in pairs(objective.weights) do total = total + w * (out[stat] or 0) end
+    return total
+  end
+  return 0
+end
+
 return gem
