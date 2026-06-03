@@ -19,6 +19,7 @@ import { getBuildSummary } from './ops/build-summary.js'
 import { searchStart, searchCancel } from './ops/search.js'
 import { exportBuild } from './ops/export-build.js'
 import { revertBuild } from './ops/revert-build.js'
+import { gemSearch } from './ops/gem-search.js'
 import { getActiveBuild, buildEvents } from './active-build.js'
 import { dbg } from './debug.js'
 
@@ -66,6 +67,10 @@ async function main() {
   )
   app.get('/api/export', httpRoute(bridge, exportBuild))
   app.post('/api/revert', httpRoute(bridge, revertBuild))
+  app.post(
+    '/api/gem-search',
+    httpRoute(bridge, gemSearch, (req) => req.body),
+  )
 
   app.get('/events', (req, res) => {
     res.writeHead(200, {
