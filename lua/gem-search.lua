@@ -204,9 +204,26 @@ function gem.run(args)
     local group = build.skillsTab.socketGroupList[gi]
     if group and gem.active_skill(group) then
       local before = gem.score(objective)
+      -- snapshot current support ids before greedy mutates the group, to mark kept vs added
+      local prev = {}
+      for _, inst in ipairs(group.gemList) do
+        local ge = inst.grantedEffect or (inst.gemData and inst.gemData.grantedEffect)
+        if ge and ge.support and inst.gemId then prev[inst.gemId] = true end
+      end
+      local active = gem.active_skill(group)
+      local skill_name = (active and active.activeEffect and active.activeEffect.grantedEffect
+        and active.activeEffect.grantedEffect.name) or "?"
       local chosen = gem.greedy(group, objective, mode, lineage, cap)
       local polished, after = gem.polish(group, objective, mode, lineage, cap, chosen)
-      results[#results+1] = { group = gi, supports = polished, score = after, score_before = before }
+      local supports = {}
+      for _, id in ipairs(polished) do
+        local gd = build.data.gems[id]
+        local ge = gd and gd.grantedEffect
+        supports[#supports+1] = { id = id, name = (ge and ge.name) or "?", kept = prev[id] == true }
+      end
+      results[#results+1] = {
+        group = gi, main_skill = skill_name, supports = supports, score = after, score_before = before,
+      }
     end
   end
   return { results = results }
