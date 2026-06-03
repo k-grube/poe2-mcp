@@ -17,6 +17,8 @@ import { httpRoute } from './http-route.js'
 import { loadBuild } from './ops/load-build.js'
 import { getBuildSummary } from './ops/build-summary.js'
 import { searchStart, searchCancel } from './ops/search.js'
+import { exportBuild } from './ops/export-build.js'
+import { revertBuild } from './ops/revert-build.js'
 import { getActiveBuild, buildEvents } from './active-build.js'
 import { dbg } from './debug.js'
 
@@ -62,6 +64,8 @@ async function main() {
     '/api/search/cancel',
     httpRoute(bridge, searchCancel, (req) => req.body),
   )
+  app.get('/api/export', httpRoute(bridge, exportBuild))
+  app.post('/api/revert', httpRoute(bridge, revertBuild))
 
   app.get('/events', (req, res) => {
     res.writeHead(200, {

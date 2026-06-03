@@ -5,6 +5,10 @@ import type { BuildInfo } from './wire-types.js'
 // a late-joining viz what is loaded. set by the shared loadBuild op (either plane).
 let current: BuildInfo | null = null
 
+// the build's xml captured when a search starts; what Revert restores. cleared when
+// the active build is replaced (new load or a revert), per CONTEXT.md's Baseline.
+let baseline: string | null = null
+
 export const buildEvents = new EventEmitter()
 
 export function getActiveBuild(): BuildInfo | null {
@@ -13,5 +17,14 @@ export function getActiveBuild(): BuildInfo | null {
 
 export function setActiveBuild(info: BuildInfo): void {
   current = info
+  baseline = null
   buildEvents.emit('build', info)
+}
+
+export function setBaseline(xml: string): void {
+  baseline = xml
+}
+
+export function getBaseline(): string | null {
+  return baseline
 }

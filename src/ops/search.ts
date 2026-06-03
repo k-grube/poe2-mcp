@@ -1,12 +1,20 @@
 import { z } from 'zod'
 import { SearchInputSchema } from '../tools/search-schema.js'
-import { startSearch, requestCancel } from '../search-jobs.js'
+import { startSearch, requestCancel, getActiveJob } from '../search-jobs.js'
+import { setBaseline } from '../active-build.js'
 import type { ToolBody } from '../tools/define-tool.js'
 
 // start an async memetic-GA tree search; returns a job summary immediately. throws
 // "a search is already running" if one is active (startSearch enforces it).
 export const searchStart: ToolBody = async (bridge, args) => {
   const parsed = SearchInputSchema.parse(args)
+  // snapshot the build for Revert before the search mutates it (and before a
+  // fresh-mode reset). skip if a search owns the build so we keep its baseline.
+  const active = getActiveJob()
+  if (!(active && active.status === 'running')) {
+    const { xml } = (await bridge.send({ cmd: 'save_build' })).data as { xml: string }
+    setBaseline(xml)
+  }
   const job = await startSearch(bridge, parsed)
   return {
     job_id: job.id,

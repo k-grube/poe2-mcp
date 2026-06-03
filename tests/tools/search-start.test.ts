@@ -22,6 +22,9 @@ describe('search_start tool', () => {
     // gate the step so the background loop is still running when the handler serializes
     const gate = deferred<{ ok: boolean; data: unknown }>()
     const send = vi.fn().mockImplementation((cmd: { cmd: string }) => {
+      if (cmd.cmd === 'save_build') {
+        return Promise.resolve({ ok: true, data: { xml: '<x/>' } })
+      }
       if (cmd.cmd === 'search_start') {
         return Promise.resolve({ ok: true, data: { initial: { score: 902000, stats: {} }, total_generations: 5 } })
       }

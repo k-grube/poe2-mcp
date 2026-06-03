@@ -33,6 +33,8 @@ import { definition as searchResultDef, handler as searchResultHandler } from '.
 import { definition as searchCancelDef, handler as searchCancelHandler } from './search-cancel.js'
 import { definition as buildInfoDef, handler as buildInfoHandler } from './build-info.js'
 import { definition as buildSummaryDef, handler as buildSummaryHandler } from './build-summary.js'
+import { definition as exportDef, handler as exportHandler } from './export-build.js'
+import { definition as revertDef, handler as revertHandler } from './revert-build.js'
 
 type Handler = (bridge: LuaBridge, args: unknown) => Promise<CallToolResult>
 
@@ -57,6 +59,8 @@ const entries: Array<{ definition: Tool; handler: Handler }> = [
   { definition: searchStatusDef, handler: searchStatusHandler },
   { definition: searchResultDef, handler: searchResultHandler },
   { definition: searchCancelDef, handler: searchCancelHandler },
+  { definition: exportDef, handler: exportHandler },
+  { definition: revertDef, handler: revertHandler },
 ]
 
 export const toolDefinitions: Tool[] = entries.map((e) => e.definition)

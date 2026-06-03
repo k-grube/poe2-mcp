@@ -5,11 +5,12 @@ import type { LuaBridge } from '../src/lua-bridge.js'
 vi.mock('../src/search-jobs.js', () => ({
   startSearch: vi.fn(),
   requestCancel: vi.fn(),
+  getActiveJob: vi.fn(),
 }))
 
 import { httpRoute } from '../src/http-route.js'
 import { searchStart, searchCancel } from '../src/ops/search.js'
-import { startSearch, requestCancel } from '../src/search-jobs.js'
+import { startSearch, requestCancel, getActiveJob } from '../src/search-jobs.js'
 
 function fakeRes() {
   return {
@@ -26,11 +27,13 @@ function fakeRes() {
   }
 }
 
-const bridge = {} as unknown as LuaBridge
+const bridge = { send: vi.fn().mockResolvedValue({ ok: true, data: { xml: '<x/>' } }) } as unknown as LuaBridge
 
 beforeEach(() => {
   vi.mocked(startSearch).mockReset()
   vi.mocked(requestCancel).mockReset()
+  vi.mocked(getActiveJob).mockReset()
+  vi.mocked(getActiveJob).mockReturnValue(null)
 })
 
 describe('POST /api/search', () => {

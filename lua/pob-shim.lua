@@ -219,6 +219,15 @@ handlers["get_build_info"] = function(_args)
   return {ok = true, data = build_info()}
 end
 
+-- serialize the live build to xml; node side zlib+base64 encodes it into a PoB code.
+-- also used to snapshot the baseline before a search mutates the build.
+handlers["save_build"] = function(_args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local ok, xml = pcall(function() return build:SaveDB("code") end)
+  if not ok or not xml then return {ok = false, error = "save failed"} end
+  return {ok = true, data = {xml = xml}}
+end
+
 handlers["get_dps"] = function(_args)
   if not loaded then return {ok = false, error = "no build loaded"} end
   local out = get_output()

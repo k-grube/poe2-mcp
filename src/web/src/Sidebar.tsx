@@ -1,6 +1,7 @@
 import { LoadPanel } from './LoadPanel.js'
 import { SummaryPanel } from './SummaryPanel.js'
 import { SearchPanel } from './SearchPanel.js'
+import { BuildActions } from './BuildActions.js'
 import type { BuildSummary } from './types.js'
 import type { StreamState } from './useSearchStream.js'
 
@@ -35,6 +36,7 @@ export function Sidebar({
         <>
           <SummaryPanel summary={summary} />
           <SearchPanel stream={stream} />
+          <BuildActions stream={stream} />
         </>
       ) : (
         <div style={{ opacity: 0.6 }}>{summaryError ?? 'no build loaded'}</div>
