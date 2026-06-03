@@ -1,17 +1,22 @@
 import { z } from 'zod'
 import { SearchInputSchema } from '../tools/search-schema.js'
-import { startSearch, requestCancel, getActiveJob } from '../search-jobs.js'
+import { startSearch, requestCancel } from '../search-jobs.js'
 import { setBaseline } from '../active-build.js'
+import { anySearchRunning } from '../search-lock.js'
 import type { ToolBody } from '../tools/define-tool.js'
 
 // start an async memetic-GA tree search; returns a job summary immediately. throws
 // "a search is already running" if one is active (startSearch enforces it).
 export const searchStart: ToolBody = async (bridge, args) => {
   const parsed = SearchInputSchema.parse(args)
-  // snapshot the build for Revert before the search mutates it (and before a
-  // fresh-mode reset). skip if a search owns the build so we keep its baseline.
-  const active = getActiveJob()
-  if (!(active && active.status === 'running')) {
+  // a gem search owning the build blocks a tree search. otherwise snapshot the build for
+  // Revert before the search mutates it (startSearch enforces single tree job, so a re-arm
+  // during a running tree search keeps its baseline).
+  const lock = anySearchRunning()
+  if (lock.kind === 'gem') {
+    throw new Error('a gem search is running; cancel it before starting a tree search')
+  }
+  if (!lock.running) {
     const { xml } = (await bridge.send({ cmd: 'save_build' })).data as { xml: string }
     setBaseline(xml)
   }
