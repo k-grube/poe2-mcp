@@ -52,6 +52,25 @@ function get_output()
   return build.calcsTab.mainOutput
 end
 
+-- the displayed/main skill of a socket group, mirage-aware. meta skills (Mirage Deadeye/Archer)
+-- emit empty-named mirror placeholders at the front of displaySkillList, so mainActiveSkill lands
+-- on a blank buff. fall through to the first real (named) skill, which is the linked attack the
+-- mirage mirrors (e.g. Ice Shot). global so gem-search.lua can use it too.
+function display_skill(group)
+  if not (group and group.displaySkillList) then return nil end
+  local list = group.displaySkillList
+  local function named(sk)
+    local ge = sk and sk.activeEffect and sk.activeEffect.grantedEffect
+    return ge ~= nil and ge.name ~= nil and ge.name ~= ""
+  end
+  local main = list[group.mainActiveSkill or 1]
+  if named(main) then return main end
+  for _, sk in ipairs(list) do
+    if named(sk) then return sk end
+  end
+  return main
+end
+
 local function safe_num(t, key)
   local v = t and t[key]
   return (type(v) == "number") and v or 0
@@ -101,7 +120,7 @@ handlers["get_socket_groups"] = function(_args)
   local groups = {}
   if build.skillsTab and build.skillsTab.socketGroupList then
     for i, sg in ipairs(build.skillsTab.socketGroupList) do
-      local main_skill = sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
+      local main_skill = display_skill(sg)
       local gems = {}
       if sg.gemList then
         for _, gem in ipairs(sg.gemList) do
@@ -180,7 +199,7 @@ end
 local function build_info()
   local b = build
   local sg = b.skillsTab and b.skillsTab.socketGroupList and b.skillsTab.socketGroupList[b.mainSocketGroup]
-  local skill = sg and sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
+  local skill = display_skill(sg)
   -- weapon-set point cap: campaign quest points (24) + conversions (Weapon Master)
   local weapon_sets
   if b.spec and b.spec.CountAllocNodes then

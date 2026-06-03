@@ -6,10 +6,11 @@
 
 local gem = {}
 
--- the active skill object for a socket group (nil if the group has no active gem)
+-- the active skill object for a socket group. display_skill (shim global) is mirage-aware:
+-- it skips the empty-named mirror placeholders a meta-skill (Mirage Deadeye/Archer) emits, so
+-- we optimize the real damage skill it mirrors (e.g. Ice Shot), not the buff.
 function gem.active_skill(group)
-  if not (group and group.displaySkillList) then return nil end
-  return group.displaySkillList[group.mainActiveSkill or 1]
+  return display_skill(group)
 end
 
 -- attribute feasibility. idealized mode assumes a maxed character meets attr reqs;
