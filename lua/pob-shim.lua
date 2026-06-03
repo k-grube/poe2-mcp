@@ -650,6 +650,34 @@ handlers["gem_search"] = function(args)
   return {ok = true, data = res}
 end
 
+-- async gem search: one resumable run at a time (one live build state), driven by the TS
+-- job loop. step does one socket-fill or one GA generation and returns progress.
+local active_gem = nil
+
+handlers["gem_search_start"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local ok, state = pcall(function() return gem.start(args or {}) end)
+  if not ok then return {ok = false, error = tostring(state)} end
+  active_gem = state
+  return {ok = true, data = {total_groups = #state.groups, groups = state.groups}}
+end
+
+handlers["gem_search_step"] = function(_args)
+  if not active_gem then return {ok = false, error = "no active gem search; call gem_search_start first"} end
+  local ok, p = pcall(function() return gem.step(active_gem) end)
+  if not ok then
+    active_gem = nil
+    return {ok = false, error = tostring(p)}
+  end
+  if p.done then active_gem = nil end
+  return {ok = true, data = p}
+end
+
+handlers["gem_search_cancel"] = function(_args)
+  active_gem = nil
+  return {ok = true, data = {cancelled = true}}
+end
+
 -- readline loop
 while true do
   local line = _real_io_read("*l")
