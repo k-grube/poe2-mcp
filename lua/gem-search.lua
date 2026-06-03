@@ -134,4 +134,93 @@ function gem.greedy(group, objective, mode, lineage, cap)
   return chosen, gem.score(objective)
 end
 
+-- GA polish: refine one group's support set with the genome-agnostic engine (require("search").ga).
+-- genome = an ordered support-id subset, fitness = recalc score (lineage violations score -inf so
+-- the engine rejects them). small budget by default. returns the best set + its score.
+function gem.polish(group, objective, mode, lineage, cap, seed_ids, gens, pop_size)
+  local ga = require("search").ga
+  local pool = gem.valid_supports(group, mode)
+  local k = gem.socket_count(group, mode)
+  local function random_set()
+    local ids, seen = {}, {}
+    local tries = 0
+    while #ids < k and tries < k * 4 do
+      tries = tries + 1
+      local s = pool[math.random(#pool)]
+      if s and not seen[s.id] then seen[s.id] = true; ids[#ids+1] = s.id end
+    end
+    return ids
+  end
+  local function capture(ids)
+    gem.set_supports(group, ids, mode)
+    return { ids = ids, score = gem.score(objective) }
+  end
+  local ops = {
+    hc_evals = 1,
+    initial = function() return capture(seed_ids) end,
+    random = function() return capture(random_set()) end,
+    clone = function(p) return capture(p.ids) end,
+    crossover = function(a, b)
+      local ids, seen = {}, {}
+      for _, id in ipairs(a.ids) do if #ids < k and not seen[id] then seen[id] = true; ids[#ids+1] = id end end
+      for _, id in ipairs(b.ids) do if #ids < k and not seen[id] then seen[id] = true; ids[#ids+1] = id end end
+      return capture(ids)
+    end,
+    mutate = function(m)
+      local ids = {}
+      for _, id in ipairs(m.ids) do ids[#ids+1] = id end
+      if #ids > 0 and #pool > 0 then ids[math.random(#ids)] = pool[math.random(#pool)].id end
+      return capture(ids)
+    end,
+    hill_climb = function(m) return m end,
+  }
+  local state = ga.seed({ pop_size = pop_size or 6, generations = gens or 5, elitism = 2,
+    crossover_rate = 0.7, tournament_size = 3 }, ops)
+  for _ = 1, (gens or 5) do ga.evolve_one(state) end
+  gem.set_supports(group, state.champion.ids, mode)
+  return state.champion.ids, gem.score(objective)
+end
+
+-- orchestrate a run: pick the in-scope groups, greedy + polish each, return per-skill results.
+-- args: { objective, mode = {idealized=bool}, scope = "main"|"all"|{indices} }.
+function gem.run(args)
+  local objective = args.objective or { stat = "FullDPS" }
+  local mode = args.mode or { idealized = true }
+  if not mode.idealized then
+    local out = get_output()
+    mode.str, mode.dex, mode.int = out.Str or 0, out.Dex or 0, out.Int or 0
+  end
+  local groups = gem.scope_groups(args.scope)
+  -- MaxLineageCount (base 1) caps lineage supports per family character-wide
+  local cap = 1
+  local env = build.calcsTab.mainEnv
+  if env and env.modDB then
+    local ok, v = pcall(function() return env.modDB:Sum("BASE", nil, "MaxLineageCount") end)
+    if ok and v and v >= 1 then cap = v end
+  end
+  local lineage = {}
+  local results = {}
+  for _, gi in ipairs(groups) do
+    local group = build.skillsTab.socketGroupList[gi]
+    if group and gem.active_skill(group) then
+      local before = gem.score(objective)
+      local chosen = gem.greedy(group, objective, mode, lineage, cap)
+      local polished, after = gem.polish(group, objective, mode, lineage, cap, chosen)
+      results[#results+1] = { group = gi, supports = polished, score = after, score_before = before }
+    end
+  end
+  return { results = results }
+end
+
+-- resolve scope to a list of socket-group indices
+function gem.scope_groups(scope)
+  if type(scope) == "table" then return scope end
+  if scope == "main" or scope == nil then return { build.mainSocketGroup } end
+  local out = {}
+  for i, sg in ipairs(build.skillsTab.socketGroupList) do
+    if sg.includeInFullDPS or i == build.mainSocketGroup then out[#out+1] = i end
+  end
+  return out
+end
+
 return gem
