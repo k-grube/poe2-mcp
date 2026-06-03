@@ -102,3 +102,22 @@ export interface BuildSummary {
   // alloc_mode: 0 normal, 1 weapon set 1, 2 weapon set 2
   allocated_nodes: Array<{ id: number; alloc_mode: number }>
 }
+
+// gem-search result: per in-scope skill, the recommended supports + score delta
+export interface GemSupportChange {
+  id: string
+  name: string
+  kept: boolean // already socketed before the search (unchanged)
+}
+
+export interface GemSkillResult {
+  group: number
+  main_skill: string
+  supports: GemSupportChange[]
+  score: number
+  score_before: number
+}
+
+export interface GemSearchResult {
+  results: GemSkillResult[]
+}
