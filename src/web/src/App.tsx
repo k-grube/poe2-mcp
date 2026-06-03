@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { TreeNode } from './types.js'
 import { useTreeLayout } from './useTreeLayout.js'
 import { useSearchStream } from './useSearchStream.js'
+import { useGemSearchStream } from './useGemSearchStream.js'
 import { useBuildSummary } from './useBuildSummary.js'
 import { diffNodeIds } from './nodeStyle.js'
 import { TreeCanvas } from './TreeCanvas.js'
@@ -13,6 +14,7 @@ const EMPTY = new Set<number>()
 export function App() {
   const { layout } = useTreeLayout()
   const stream = useSearchStream()
+  const gem = useGemSearchStream()
   const { summary, error: summaryError } = useBuildSummary(stream.buildInfo)
   const [hover, setHover] = useState<TreeNode | null>(null)
   const [view, setView] = useState<'after' | 'before'>('after')
@@ -39,7 +41,7 @@ export function App() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex' }}>
-      <Sidebar summary={summary} summaryError={summaryError} stream={stream} />
+      <Sidebar summary={summary} summaryError={summaryError} stream={stream} gem={gem} />
       <div style={{ flex: 1, position: 'relative' }}>
         {layout ? (
           <>
