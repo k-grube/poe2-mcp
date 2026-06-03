@@ -19,7 +19,10 @@ import { getBuildSummary } from './ops/build-summary.js'
 import { searchStart, searchCancel } from './ops/search.js'
 import { exportBuild } from './ops/export-build.js'
 import { revertBuild } from './ops/revert-build.js'
-import { gemSearch } from './ops/gem-search.js'
+import { gemSearch, gemSearchStart, gemSearchCancel } from './ops/gem-search.js'
+import { gemEvents } from './gem-events.js'
+import { gemSnapshotOf } from './gem-snapshot.js'
+import { getActiveGemJob } from './gem-search-jobs.js'
 import { getActiveBuild, buildEvents } from './active-build.js'
 import { dbg } from './debug.js'
 
@@ -71,6 +74,14 @@ async function main() {
     '/api/gem-search',
     httpRoute(bridge, gemSearch, (req) => req.body),
   )
+  app.post(
+    '/api/gem-search/start',
+    httpRoute(bridge, gemSearchStart, (req) => req.body),
+  )
+  app.post(
+    '/api/gem-search/cancel',
+    httpRoute(bridge, gemSearchCancel, (req) => req.body),
+  )
 
   app.get('/events', (req, res) => {
     res.writeHead(200, {
@@ -79,6 +90,7 @@ async function main() {
       Connection: 'keep-alive',
     })
     res.write(sseLine('snapshot', snapshotOf(getActiveJob(), getActiveBuild())))
+    res.write(sseLine('gem:snapshot', gemSnapshotOf(getActiveGemJob())))
 
     const onStart = (e: unknown) => res.write(sseLine('start', e))
     const onGen = (e: unknown) => res.write(sseLine('gen', e))
@@ -88,6 +100,12 @@ async function main() {
     searchEvents.on('end', onEnd)
     const onBuild = (e: unknown) => res.write(sseLine('build', e))
     buildEvents.on('build', onBuild)
+    const onGemStart = (e: unknown) => res.write(sseLine('gem:start', e))
+    const onGemProgress = (e: unknown) => res.write(sseLine('gem:progress', e))
+    const onGemEnd = (e: unknown) => res.write(sseLine('gem:end', e))
+    gemEvents.on('gem:start', onGemStart)
+    gemEvents.on('gem:progress', onGemProgress)
+    gemEvents.on('gem:end', onGemEnd)
 
     const heartbeat = setInterval(() => res.write(': ping\n\n'), 15_000)
 
@@ -97,6 +115,9 @@ async function main() {
       searchEvents.off('gen', onGen)
       searchEvents.off('end', onEnd)
       buildEvents.off('build', onBuild)
+      gemEvents.off('gem:start', onGemStart)
+      gemEvents.off('gem:progress', onGemProgress)
+      gemEvents.off('gem:end', onGemEnd)
     })
   })
 
