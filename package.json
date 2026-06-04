@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:lua": "luajit scripts/ga-toy-test.lua",
+    "test:gem": "luajit scripts/gem-toy-test.lua",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",

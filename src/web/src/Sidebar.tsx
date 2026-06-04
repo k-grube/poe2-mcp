@@ -2,8 +2,11 @@ import { LoadPanel } from './LoadPanel.js'
 import { SummaryPanel } from './SummaryPanel.js'
 import { SearchPanel } from './SearchPanel.js'
 import { BuildActions } from './BuildActions.js'
+import { GemSearchPanel } from './GemSearchPanel.js'
+import { GemDiff } from './GemDiff.js'
 import type { BuildSummary } from './types.js'
 import type { StreamState } from './useSearchStream.js'
+import type { GemStreamState } from './useGemSearchStream.js'
 
 const panel: React.CSSProperties = {
   width: 320,
@@ -22,10 +25,12 @@ export function Sidebar({
   summary,
   summaryError,
   stream,
+  gem,
 }: {
   summary: BuildSummary | null
   summaryError: string | null
   stream: StreamState
+  gem: GemStreamState
 }) {
   return (
     <div style={panel}>
@@ -37,6 +42,14 @@ export function Sidebar({
           <SummaryPanel summary={summary} />
           <SearchPanel stream={stream} />
           <BuildActions stream={stream} />
+          <GemSearchPanel gem={gem} />
+          <GemDiff results={gem.results} />
+          {summary.dps && (summary.dps as { full_dps?: number }).full_dps === 0 ? (
+            <div style={{ opacity: 0.55, fontSize: 11, marginTop: 6 }}>
+              FullDPS is 0 for this build (no groups flagged into FullDPS). Use the TotalDPS objective or include groups
+              so gem search has signal.
+            </div>
+          ) : null}
         </>
       ) : (
         <div style={{ opacity: 0.6 }}>{summaryError ?? 'no build loaded'}</div>

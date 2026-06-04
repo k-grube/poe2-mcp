@@ -37,4 +37,11 @@ export type {
   BuildSummary,
   Gem,
   SocketGroup,
+  GemSupportRef,
+  GemSupportChange,
+  GemSkillResult,
+  GemStartEvent,
+  GemProgressEvent,
+  GemEndEvent,
+  GemSnapshot,
 } from '../../wire-types.js'

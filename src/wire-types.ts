@@ -102,3 +102,67 @@ export interface BuildSummary {
   // alloc_mode: 0 normal, 1 weapon set 1, 2 weapon set 2
   allocated_nodes: Array<{ id: number; alloc_mode: number }>
 }
+
+// gem-search result: per in-scope skill, the recommended supports + score delta
+export interface GemSupportChange {
+  id: string
+  name: string
+  kept: boolean // already socketed before the search (unchanged)
+}
+
+export interface GemSupportRef {
+  id: string
+  name: string
+}
+
+export interface GemSkillResult {
+  group: number
+  main_skill: string
+  supports: GemSupportChange[] // final layout, kept=true means unchanged
+  removed: GemSupportRef[] // supports dropped from the original layout
+  score: number
+  score_before: number
+}
+
+export interface GemSearchResult {
+  results: GemSkillResult[]
+}
+
+export interface GemStartEvent {
+  job_id: string
+  total_groups: number
+  groups: number[]
+}
+
+// one per step: the in-flight skill's running best + already-finished skills
+export interface GemProgressEvent {
+  job_id: string
+  status: 'running'
+  group: number
+  main_skill: string
+  phase: 'greedy' | 'polish'
+  step: number
+  total_steps: number
+  best_score: number
+  score_before: number
+  current_supports: GemSupportRef[]
+  done_results: GemSkillResult[]
+  group_ordinal: number
+  total_groups: number
+}
+
+export interface GemEndEvent {
+  job_id: string
+  status: 'done' | 'cancelled' | 'error'
+  results: GemSkillResult[]
+  error: string | null
+}
+
+export interface GemSnapshot {
+  status: Status
+  job_id: string | null
+  groups: number[]
+  progress: GemProgressEvent | null
+  results: GemSkillResult[]
+  error: string | null
+}

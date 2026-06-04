@@ -52,6 +52,25 @@ function get_output()
   return build.calcsTab.mainOutput
 end
 
+-- the displayed/main skill of a socket group, mirage-aware. meta skills (Mirage Deadeye/Archer)
+-- emit empty-named mirror placeholders at the front of displaySkillList, so mainActiveSkill lands
+-- on a blank buff. fall through to the first real (named) skill, which is the linked attack the
+-- mirage mirrors (e.g. Ice Shot). global so gem-search.lua can use it too.
+function display_skill(group)
+  if not (group and group.displaySkillList) then return nil end
+  local list = group.displaySkillList
+  local function named(sk)
+    local ge = sk and sk.activeEffect and sk.activeEffect.grantedEffect
+    return ge ~= nil and ge.name ~= nil and ge.name ~= ""
+  end
+  local main = list[group.mainActiveSkill or 1]
+  if named(main) then return main end
+  for _, sk in ipairs(list) do
+    if named(sk) then return sk end
+  end
+  return main
+end
+
 local function safe_num(t, key)
   local v = t and t[key]
   return (type(v) == "number") and v or 0
@@ -101,7 +120,7 @@ handlers["get_socket_groups"] = function(_args)
   local groups = {}
   if build.skillsTab and build.skillsTab.socketGroupList then
     for i, sg in ipairs(build.skillsTab.socketGroupList) do
-      local main_skill = sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
+      local main_skill = display_skill(sg)
       local gems = {}
       if sg.gemList then
         for _, gem in ipairs(sg.gemList) do
@@ -180,7 +199,7 @@ end
 local function build_info()
   local b = build
   local sg = b.skillsTab and b.skillsTab.socketGroupList and b.skillsTab.socketGroupList[b.mainSocketGroup]
-  local skill = sg and sg.displaySkillList and sg.displaySkillList[sg.mainActiveSkill or 1]
+  local skill = display_skill(sg)
   -- weapon-set point cap: campaign quest points (24) + conversions (Weapon Master)
   local weapon_sets
   if b.spec and b.spec.CountAllocNodes then
@@ -565,6 +584,9 @@ end
 local engine = require("search")
 local search, ga = engine.search, engine.ga
 
+-- gem-support optimizer (see gem-search.lua)
+local gem = require("gem-search")
+
 handlers["search_tree_neighborhood"] = function(args)
   local state, err = ga.init_state(args)
   if not state then return {ok = false, error = err} end
@@ -619,6 +641,59 @@ end
 
 handlers["search_cancel"] = function(_args)
   active_search = nil
+  return {ok = true, data = {cancelled = true}}
+end
+
+-- gem-support optimization. greedy + GA polish runs synchronously in one call (fast in-process).
+handlers["get_valid_supports"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local gi = (args and tonumber(args.group)) or build.mainSocketGroup
+  local group = build.skillsTab.socketGroupList[gi]
+  if not group then return {ok = false, error = "no such socket group"} end
+  local mode = { idealized = not (args and args.as_imported) }
+  if not mode.idealized then
+    local out = get_output()
+    mode.str, mode.dex, mode.int = out.Str or 0, out.Dex or 0, out.Int or 0
+  end
+  local list = {}
+  for _, s in ipairs(gem.valid_supports(group, mode)) do
+    list[#list+1] = { id = s.id, name = s.name, lineage = s.lineage, family = s.family }
+  end
+  return {ok = true, data = {group = gi, supports = list}}
+end
+
+handlers["gem_search"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local ok, res = pcall(function() return gem.run(args or {}) end)
+  if not ok then return {ok = false, error = tostring(res)} end
+  return {ok = true, data = res}
+end
+
+-- async gem search: one resumable run at a time (one live build state), driven by the TS
+-- job loop. step does one socket-fill or one GA generation and returns progress.
+local active_gem = nil
+
+handlers["gem_search_start"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local ok, state = pcall(function() return gem.start(args or {}) end)
+  if not ok then return {ok = false, error = tostring(state)} end
+  active_gem = state
+  return {ok = true, data = {total_groups = #state.groups, groups = state.groups}}
+end
+
+handlers["gem_search_step"] = function(_args)
+  if not active_gem then return {ok = false, error = "no active gem search; call gem_search_start first"} end
+  local ok, p = pcall(function() return gem.step(active_gem) end)
+  if not ok then
+    active_gem = nil
+    return {ok = false, error = tostring(p)}
+  end
+  if p.done then active_gem = nil end
+  return {ok = true, data = p}
+end
+
+handlers["gem_search_cancel"] = function(_args)
+  active_gem = nil
   return {ok = true, data = {cancelled = true}}
 end
 
