@@ -104,7 +104,14 @@ export class LuaBridge {
     const lines = this.buf.split('\n')
     this.buf = lines.pop() ?? ''
     for (const line of lines) {
-      if (!line.trim()) {
+      const trimmed = line.trim()
+      if (!trimmed) {
+        continue
+      }
+      // PoB prints startup chatter to stdout ("missing node X", "Uniques loaded", "Startup time:"...);
+      // anything that doesn't look like a JSON object isn't a bridge response — log + skip.
+      if (trimmed[0] !== '{') {
+        dbg(`[bridge] non-json stdout: ${trimmed}\n`)
         continue
       }
       try {

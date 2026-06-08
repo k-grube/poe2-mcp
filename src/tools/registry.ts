@@ -14,6 +14,8 @@ import {
   getHandler as sgGetHandler,
   setFullDpsDefinition as sgSetDef,
   setFullDpsHandler as sgSetHandler,
+  setMainDefinition as sgSetMainDef,
+  setMainHandler as sgSetMainHandler,
 } from './socket-groups.js'
 import {
   getAllocatedDef,
@@ -33,6 +35,13 @@ import { definition as searchResultDef, handler as searchResultHandler } from '.
 import { definition as searchCancelDef, handler as searchCancelHandler } from './search-cancel.js'
 import { definition as buildInfoDef, handler as buildInfoHandler } from './build-info.js'
 import { definition as buildSummaryDef, handler as buildSummaryHandler } from './build-summary.js'
+import { definition as compareCompanionsDef, handler as compareCompanionsHandler } from './compare-companions.js'
+import {
+  getDefinition as msGetDef,
+  getHandler as msGetHandler,
+  setDefinition as msSetDef,
+  setHandler as msSetHandler,
+} from './minion-skills.js'
 import { definition as exportDef, handler as exportHandler } from './export-build.js'
 import { definition as revertDef, handler as revertHandler } from './revert-build.js'
 import { definition as gemSearchDef, handler as gemSearchHandler } from './gem-search.js'
@@ -47,6 +56,9 @@ const entries: Array<{ definition: Tool; handler: Handler }> = [
   { definition: loadBuildDef, handler: loadBuildHandler },
   { definition: buildInfoDef, handler: buildInfoHandler },
   { definition: buildSummaryDef, handler: buildSummaryHandler },
+  { definition: compareCompanionsDef, handler: compareCompanionsHandler },
+  { definition: msGetDef, handler: msGetHandler },
+  { definition: msSetDef, handler: msSetHandler },
   { definition: dpsDef, handler: dpsHandler },
   { definition: ehpDef, handler: ehpHandler },
   { definition: bpDef, handler: bpHandler },
@@ -55,6 +67,7 @@ const entries: Array<{ definition: Tool; handler: Handler }> = [
   { definition: updateDef, handler: updateHandler },
   { definition: sgGetDef, handler: sgGetHandler },
   { definition: sgSetDef, handler: sgSetHandler },
+  { definition: sgSetMainDef, handler: sgSetMainHandler },
   { definition: getAllocatedDef, handler: getAllocatedHandler },
   { definition: allocateDef, handler: allocateHandler },
   { definition: deallocateDef, handler: deallocateHandler },

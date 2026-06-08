@@ -43,3 +43,21 @@ export const { definition: setFullDpsDefinition, handler: setFullDpsHandler } = 
   },
   bridgeCmd('set_full_dps_inclusion', SetFullDpsInput),
 )
+
+const SetMainInput = z.object({ index: z.number().int().positive() })
+
+export const { definition: setMainDefinition, handler: setMainHandler } = defineTool(
+  {
+    name: 'set_main_socket_group',
+    description:
+      "Set which socket group is the build's main (1-based index). The main group drives build_info.main_skill and get_dps.main_dps/main_avg_hit/main_dot_dps. Mutates the live build and rebuilds output.",
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        index: { type: 'number', description: '1-based socket group index' },
+      },
+      required: ['index'],
+    },
+  },
+  bridgeCmd('set_main_socket_group', SetMainInput),
+)

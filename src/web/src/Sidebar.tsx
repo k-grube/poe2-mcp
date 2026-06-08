@@ -26,11 +26,13 @@ export function Sidebar({
   summaryError,
   stream,
   gem,
+  onMutate,
 }: {
   summary: BuildSummary | null
   summaryError: string | null
   stream: StreamState
   gem: GemStreamState
+  onMutate: () => void
 }) {
   return (
     <div style={panel}>
@@ -39,11 +41,11 @@ export function Sidebar({
       <hr style={{ border: 'none', borderTop: '1px solid #2a3140', margin: '12px 0' }} />
       {summary ? (
         <>
-          <SummaryPanel summary={summary} />
+          <SummaryPanel summary={summary} onMutate={onMutate} />
           <SearchPanel stream={stream} />
           <BuildActions stream={stream} />
           <GemSearchPanel gem={gem} />
-          <GemDiff results={gem.results} />
+          <GemDiff results={gem.results} onMutate={onMutate} />
           {summary.dps && (summary.dps as { full_dps?: number }).full_dps === 0 ? (
             <div style={{ opacity: 0.55, fontSize: 11, marginTop: 6 }}>
               FullDPS is 0 for this build (no groups flagged into FullDPS). Use the TotalDPS objective or include groups

@@ -1,9 +1,15 @@
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import react, { reactCompilerPreset } from '@vitejs/plugin-react'
+import babel from '@rolldown/plugin-babel'
 
-// the viz UI lives in src/web/; built bundle goes to src/web/dist, served at / (root)
 export default defineConfig({
   root: 'src/web',
   base: '/',
-  plugins: [react()],
+  plugins: [
+    react(),
+    babel({
+      include: ['src/web/**/*.{ts,tsx}'],
+      babelConfig: { presets: [reactCompilerPreset()], babelrc: false, configFile: false },
+    }),
+  ],
 })

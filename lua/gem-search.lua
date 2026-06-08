@@ -69,9 +69,8 @@ function gem.set_supports(group, support_ids, mode)
   pcall(function() build.calcsTab:BuildOutput() end)
 end
 
--- objective score of the current build state (same shape as search.lua: objective.stat or
--- objective.weights). -inf when a lineage limit is violated, so greedy/polish reject it.
-function gem.score(objective)
+-- raw objective score from the current build state, no minion-skill iteration.
+local function raw_score(objective)
   local env = build.calcsTab.mainEnv
   if env and env.itemWarnings and env.itemWarnings.lineageSupportGemLimitWarning
      and #env.itemWarnings.lineageSupportGemLimitWarning > 0 then
@@ -85,6 +84,54 @@ function gem.score(objective)
     return total
   end
   return 0
+end
+
+-- find the (active, non-support) Companion gem in a group, if any.
+local function find_companion_gem(group)
+  if not group or not group.gemList then return nil end
+  for _, gi in ipairs(group.gemList) do
+    if gi.nameSpec and gi.nameSpec:match("^Companion:") then return gi end
+  end
+  return nil
+end
+
+-- minion's active-skill-list size for a given companion gem; 1 if not resolved.
+local function companion_n_skills(companion)
+  local env = build.calcsTab and build.calcsTab.mainEnv
+  if not (env and env.player and env.player.activeSkillList) then return 1 end
+  for _, sk in ipairs(env.player.activeSkillList) do
+    if sk.activeEffect and sk.activeEffect.srcInstance == companion then
+      if sk.minion and sk.minion.activeSkillList then
+        return #sk.minion.activeSkillList
+      end
+      return 1
+    end
+  end
+  return 1
+end
+
+-- objective score of the current build state. when the optimized group has a Companion gem
+-- with multiple minion skills and the caller hasn't pinned a skill, iterate skillMinionSkill
+-- and return the max (leaves the gem at the best skill so subsequent calls see a coherent
+-- state). -inf on lineage violation.
+function gem.score(objective, group, pin)
+  if pin then return raw_score(objective) end
+  local companion = find_companion_gem(group)
+  if not companion then return raw_score(objective) end
+  local n_skills = companion_n_skills(companion)
+  if n_skills <= 1 then return raw_score(objective) end
+  local best_score, best_idx = -math.huge, 1
+  for ski = 1, n_skills do
+    companion.skillMinionSkill = ski
+    build.buildFlag = true
+    pcall(function() build.calcsTab:BuildOutput() end)
+    local sc = raw_score(objective)
+    if sc > best_score then best_score, best_idx = sc, ski end
+  end
+  companion.skillMinionSkill = best_idx
+  build.buildFlag = true
+  pcall(function() build.calcsTab:BuildOutput() end)
+  return best_score
 end
 
 -- socket count for a group: idealized = 5, as-imported = the support slots the build's
@@ -118,22 +165,55 @@ function gem._advance_group(state)
   state.group, state.group_index = group, gi
   local a = gem.active_skill(group)
   state.skill_name = (a and a.activeEffect and a.activeEffect.grantedEffect and a.activeEffect.grantedEffect.name) or "?"
+  -- Companion gems share a mutable grantedEffect.name; resolve via skillMinion -> minion.name
+  local companion = find_companion_gem(group)
+  if companion and companion.nameSpec and companion.nameSpec:match("^Companion:") then
+    if companion.skillMinion and build.data and build.data.minions
+       and build.data.minions[companion.skillMinion] then
+      state.skill_name = "Companion: " .. build.data.minions[companion.skillMinion].name
+    else
+      state.skill_name = companion.nameSpec
+    end
+  end
   state.prev = {}
   for _, inst in ipairs(group.gemList) do
     local ge = inst.grantedEffect or (inst.gemData and inst.gemData.grantedEffect)
     if ge and ge.support and inst.gemId then state.prev[inst.gemId] = ge.name or "?" end
   end
-  state.before_score = gem.score(state.objective)
+  state.before_score = gem.score(state.objective, group, state.pin_minion_skill)
   state.pool = gem.valid_supports(group, state.mode)
   state.k = gem.socket_count(group, state.mode)
   state.chosen, state.chosen_set, state.socket = {}, {}, 0
   state.phase, state.ga, state.gen = "greedy", nil, 0
 end
 
+-- equality threshold for objective-score tie-breaking; 1 unit is well below numerical noise
+-- on FullDPS values that typically read in the hundreds of thousands.
+local SCORE_EPSILON = 1
+
+-- pull a combined EHP value from the current build state, used as a tie-breaker when two
+-- supports score identically on the offensive objective. covers both player and minion
+-- survivability so e.g. Feeding Frenzy II (15% minion damage-taken) wins over I (20%) even
+-- though the player's own TotalEHP is unchanged.
+local function current_ehp()
+  local out = get_output()
+  local ehp = (out and out.TotalEHP) or 0
+  local env = build.calcsTab and build.calcsTab.mainEnv
+  if env and env.player and env.player.activeSkillList then
+    for _, sk in ipairs(env.player.activeSkillList) do
+      local mout = sk.minion and sk.minion.output
+      if mout then
+        ehp = ehp + (mout.TotalEHP or mout.Life or 0)
+      end
+    end
+  end
+  return ehp
+end
+
 -- fill one socket: pick the best valid+budgeted support not already chosen, append it,
 -- spend the lineage budget if it was a lineage pick, leave the build on the new best.
 function gem._greedy_socket(state)
-  local best_id, best_family, best_lineage, best_score = nil, nil, false, -math.huge
+  local best_id, best_family, best_lineage, best_score, best_ehp = nil, nil, false, -math.huge, -math.huge
   for _, s in ipairs(state.pool) do
     local lineage_ok = not s.lineage or not s.family or lineage_remaining(state.lineage, s.family, state.cap) > 0
     if not state.chosen_set[s.id] and lineage_ok then
@@ -143,9 +223,12 @@ function gem._greedy_socket(state)
       end
       trial[#trial+1] = s.id
       gem.set_supports(state.group, trial, state.mode)
-      local sc = gem.score(state.objective)
-      if sc > best_score then
-        best_id, best_family, best_lineage, best_score = s.id, s.family, s.lineage, sc
+      local sc = gem.score(state.objective, state.group, state.pin_minion_skill)
+      local ehp = current_ehp()
+      local strictly_better = sc > best_score + SCORE_EPSILON
+      local tied_higher_ehp = math.abs(sc - best_score) <= SCORE_EPSILON and ehp > best_ehp
+      if strictly_better or tied_higher_ehp then
+        best_id, best_family, best_lineage, best_score, best_ehp = s.id, s.family, s.lineage, sc, ehp
       end
     end
   end
@@ -178,9 +261,10 @@ function gem._polish_init(state)
     end
     return ids
   end
+  local pin = state.pin_minion_skill
   local function capture(ids)
     gem.set_supports(group, ids, mode)
-    return { ids = ids, score = gem.score(objective) }
+    return { ids = ids, score = gem.score(objective, group, pin) }
   end
   local seed_ids = state.chosen
   local ops = {
@@ -215,7 +299,7 @@ end
 -- record the finished group: final supports (kept flag), the removed originals, scores.
 function gem._finalize_group(state, final_ids)
   gem.set_supports(state.group, final_ids, state.mode)
-  local after = gem.score(state.objective)
+  local after = gem.score(state.objective, state.group, state.pin_minion_skill)
   local supports, kept_set = {}, {}
   for _, id in ipairs(final_ids) do
     kept_set[id] = true
@@ -245,7 +329,7 @@ function gem._progress(state)
     local ge = gd and gd.grantedEffect
     cur[#cur+1] = { id = id, name = (ge and ge.name) or "?" }
   end
-  local best = (state.phase == "polish" and state.ga) and state.ga.champion.score or gem.score(state.objective)
+  local best = (state.phase == "polish" and state.ga) and state.ga.champion.score or gem.score(state.objective, state.group, state.pin_minion_skill)
   return {
     done = false,
     group = state.group_index, main_skill = state.skill_name, phase = state.phase,
@@ -276,12 +360,32 @@ function gem.start(args)
     local group = build.skillsTab.socketGroupList[gi]
     if group and gem.active_skill(group) then groups[#groups+1] = gi end
   end
+  -- minion-skill handling for Companion-gem groups:
+  --   args.iterate_minion_skills=true: gem.score iterates skillMinionSkill 1..n and picks
+  --     max DPS per support trial (auto-finds best skill, ~Nx slower per step).
+  --   args.minion_skill_index=N: pin to N across every companion gem in scope.
+  --   otherwise: pin to each companion gem's CURRENT skillMinionSkill so the optimizer
+  --     respects what the user picked in the SummaryPanel dropdown. fast default.
+  local iterate = args.iterate_minion_skills == true
+  local explicit_pin = tonumber(args.minion_skill_index)
+  if explicit_pin and explicit_pin < 1 then explicit_pin = nil end
+  local pin_minion_skill = iterate and false or (explicit_pin or true)
   local state = {
     objective = objective, mode = mode, cap = cap, lineage = {}, groups = groups, gi = 0,
     polish_gens = tonumber(args.polish_generations) or 5,
     polish_pop = tonumber(args.polish_population) or 6,
+    pin_minion_skill = pin_minion_skill,
     results = {}, finished = false,
   }
+  -- when an explicit index was given, write it onto every companion gem in scope so the
+  -- calc respects the user's request even if their current selection differs.
+  if explicit_pin then
+    for _, gi in ipairs(groups) do
+      local g = build.skillsTab.socketGroupList[gi]
+      local c = find_companion_gem(g)
+      if c then c.skillMinionSkill = explicit_pin end
+    end
+  end
   gem._advance_group(state)
   return state
 end

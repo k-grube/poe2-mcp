@@ -115,9 +115,7 @@ function search.rebuild()
   pcall(function() build.calcsTab:BuildOutput() end)
 end
 
--- PoB's snapshot mechanism: SaveDB returns the full build XML; loadBuildFromXML
--- re-loads it. note: SaveSpec doesn't exist on `build` (it's a TS-side typo
--- inherited from compare_gem_swap which silently fell into its error path).
+-- SaveDB returns the full build XML; loadBuildFromXML re-loads it.
 function search.snapshot()
   if build.SaveDB then
     local ok, xml = pcall(function() return build:SaveDB("code") end)

@@ -15,7 +15,7 @@ export function App() {
   const { layout } = useTreeLayout()
   const stream = useSearchStream()
   const gem = useGemSearchStream()
-  const { summary, error: summaryError } = useBuildSummary(stream.buildInfo)
+  const { summary, error: summaryError, refetch: refetchSummary } = useBuildSummary(stream.buildInfo)
   const [hover, setHover] = useState<TreeNode | null>(null)
   const [view, setView] = useState<'after' | 'before'>('after')
   const byId = useMemo(() => new Map((layout?.nodes ?? []).map((n) => [n.id, n])), [layout])
@@ -41,7 +41,7 @@ export function App() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex' }}>
-      <Sidebar summary={summary} summaryError={summaryError} stream={stream} gem={gem} />
+      <Sidebar summary={summary} summaryError={summaryError} stream={stream} gem={gem} onMutate={refetchSummary} />
       <div style={{ flex: 1, position: 'relative' }}>
         {layout ? (
           <>

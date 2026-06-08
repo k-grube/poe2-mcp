@@ -18,7 +18,6 @@ One long-lived LuaJIT process per server instance. Build state persists between 
 
 ## Conventions
 
-- uses npm, not pnpm. `pnpm-lock.yaml` / `pnpm-workspace.yaml` linger from earlier setup but are not authoritative.
 - no provenance or future-plans comments. don't credit a source repo the code came from (that's git history), don't editorialize about planned features (that's a doc or PR body). write reused code as if native here.
 
 ## Dev commands

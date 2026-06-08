@@ -1,4 +1,4 @@
-import type { BuildSummary, SocketGroup, Gem } from './types.js'
+import type { BuildSummary, SocketGroup, Gem, MinionSkillsInfo } from './types.js'
 import { SET1, SET2 } from './nodeStyle.js'
 
 const fmt = (n: unknown): string => (typeof n === 'number' ? Math.round(n).toLocaleString() : '-')
@@ -31,26 +31,59 @@ function Res({ label, value, capped }: { label: string; value?: number; capped?:
   )
 }
 
-function SkillGroup({ g, skillDps }: { g: SocketGroup; skillDps: Map<string, number> }) {
+function SkillGroup({
+  g,
+  skillDps,
+  minionInfo,
+  onMutate,
+}: {
+  g: SocketGroup
+  skillDps: Map<string, number>
+  minionInfo?: MinionSkillsInfo
+  onMutate: () => void
+}) {
   // only show an explicit title when there's a user label; otherwise the gem list speaks for itself
   const title = g.label || (!g.main_skill_name ? `group ${g.index}` : null)
   const actives = g.gems.filter((x) => !x.support)
   const supports = g.gems.filter((x) => x.support)
+  const setMain = async () => {
+    const r = await fetch('/api/main-socket-group', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: g.index }),
+    })
+    if (r.ok) {
+      onMutate()
+    }
+  }
+  const activeRowStyle = (extra?: React.CSSProperties): React.CSSProperties => ({
+    paddingLeft: 8,
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 8,
+    color: g.is_main ? '#d9b45b' : '#cdd3dd',
+    cursor: g.is_main ? 'default' : 'pointer',
+    ...extra,
+  })
   return (
     <div style={{ marginBottom: 8, opacity: g.enabled ? 1 : 0.5 }}>
-      {title && <div style={{ color: g.is_main ? '#d9b45b' : '#cdd3dd' }}>{title}</div>}
+      {title && (
+        <div
+          style={{ color: g.is_main ? '#d9b45b' : '#cdd3dd', cursor: g.is_main ? 'default' : 'pointer' }}
+          onClick={g.is_main ? undefined : setMain}
+          title={g.is_main ? 'main skill' : 'click to set as main skill'}
+        >
+          {title}
+        </div>
+      )}
       {actives.map((x, i) => {
         const dps = skillDps.get(x.name)
         return (
           <div
             key={`a${i}`}
-            style={{
-              paddingLeft: 8,
-              display: 'flex',
-              justifyContent: 'space-between',
-              gap: 8,
-              color: g.is_main ? '#d9b45b' : '#cdd3dd',
-            }}
+            style={activeRowStyle()}
+            onClick={g.is_main ? undefined : setMain}
+            title={g.is_main ? 'main skill' : 'click to set as main skill'}
           >
             <span>
               {x.name}
@@ -60,6 +93,9 @@ function SkillGroup({ g, skillDps }: { g: SocketGroup; skillDps: Map<string, num
           </div>
         )
       })}
+      {minionInfo && minionInfo.skills.length > 1 ? (
+        <MinionSkillSelect group={g.index} info={minionInfo} onMutate={onMutate} />
+      ) : null}
       {supports.map((x, i) => (
         <div key={`s${i}`} style={{ paddingLeft: 16, opacity: 0.6 }}>
           + {x.name}
@@ -70,10 +106,61 @@ function SkillGroup({ g, skillDps }: { g: SocketGroup; skillDps: Map<string, num
   )
 }
 
-export function SummaryPanel({ summary }: { summary: BuildSummary }) {
+function MinionSkillSelect({ group, info, onMutate }: { group: number; info: MinionSkillsInfo; onMutate: () => void }) {
+  return (
+    <div style={{ paddingLeft: 16, marginTop: 2, opacity: 0.85 }}>
+      <span style={{ opacity: 0.55 }}>uses </span>
+      <select
+        value={info.current_skill_index}
+        onChange={async (e) => {
+          const skill_index = Number(e.target.value)
+          const r = await fetch('/api/minion-skill', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ group, skill_index }),
+          })
+          if (r.ok) {
+            onMutate()
+          }
+        }}
+        style={{
+          background: '#0e1218',
+          color: '#cdd3dd',
+          border: '1px solid #2a3140',
+          font: 'inherit',
+          padding: '1px 4px',
+          maxWidth: 200,
+        }}
+      >
+        {info.skills.map((s) => (
+          <option key={s.index} value={s.index}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+export function SummaryPanel({ summary, onMutate }: { summary: BuildSummary; onMutate: () => void }) {
   const { info, dps, ehp, breakpoints, tree, socket_groups } = summary
   const d = dps as { full_dps?: number; skills?: Array<{ name: string; dps: number }> }
-  const skillDps = new Map((d.skills ?? []).map((s) => [s.name, s.dps]))
+  // skills[] from get_dps is sorted dps desc; keep the highest per name so
+  // the main socket group's contribution isn't clobbered by a lower auto-group entry
+  const skillDps = new Map<string, number>()
+  for (const s of d.skills ?? []) {
+    if (!skillDps.has(s.name)) {
+      skillDps.set(s.name, s.dps)
+    }
+  }
+  // PoB auto-generates socket groups from item/passive grants (source = "Item:..." / "Tree:...").
+  // these are shown separately in PoB's own ui; treat them as not part of the user's build here
+  // so the same skill doesn't appear twice (once as the real group, once as the L1 grant)
+  const userGroups = socket_groups.groups.filter((g) => {
+    const src = g.source ?? ''
+    return !src.startsWith('Item:') && !src.startsWith('Tree:')
+  })
+  const minionByGroup = new Map((summary.minion_skills ?? []).map((m) => [m.group, m]))
   const e = ehp as {
     total_ehp?: number
     life?: number
@@ -125,8 +212,14 @@ export function SummaryPanel({ summary }: { summary: BuildSummary }) {
       </div>
 
       <div style={head}>skills</div>
-      {socket_groups.groups.map((g) => (
-        <SkillGroup key={g.index} g={g} skillDps={skillDps} />
+      {userGroups.map((g) => (
+        <SkillGroup
+          key={g.index}
+          g={g}
+          skillDps={skillDps}
+          minionInfo={minionByGroup.get(g.index)}
+          onMutate={onMutate}
+        />
       ))}
 
       <div style={head}>tree · {tree.points_used} pts</div>
@@ -143,7 +236,6 @@ export function SummaryPanel({ summary }: { summary: BuildSummary }) {
         </div>
       ) : null}
       <div>keystones: {tree.keystones.join(', ') || '-'}</div>
-      <div style={{ opacity: 0.7 }}>notables: {tree.notables.join(', ') || '-'}</div>
     </div>
   )
 }

@@ -16,5 +16,16 @@ export const getBuildSummary: ToolBody = async (bridge) => {
     nodes?: Array<{ id: number; alloc_mode?: number }>
   }
   const allocated_nodes = (allocated?.nodes ?? []).map((n) => ({ id: n.id, alloc_mode: n.alloc_mode ?? 0 }))
-  return { info, dps, ehp, breakpoints, tree, socket_groups, allocated_nodes }
+  // companion gems: per-gem minion skills so the viz can render a "which skill to optimize" picker
+  const minionSkillsResp = (await bridge.send({ cmd: 'get_minion_skills' })).data as {
+    companions?: Array<{
+      group: number
+      gem: string
+      beast: string | null
+      current_skill_index: number
+      skills: Array<{ index: number; name: string }>
+    }>
+  }
+  const minion_skills = minionSkillsResp?.companions ?? []
+  return { info, dps, ehp, breakpoints, tree, socket_groups, allocated_nodes, minion_skills }
 }

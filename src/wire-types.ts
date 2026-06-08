@@ -69,6 +69,9 @@ export interface BuildInfo {
   main_skill: string
   // weapon-set points per pool, max = campaign cap (24) + conversions (Weapon Master)
   weapon_sets?: { set1: number; set2: number; max: number } | null
+  // present when load_build auto-repaired N broken Companion gems (poe.ninja exports).
+  // wires skillId/skillMinion onto the gem and adds the beast to build.beastList.
+  fixed_companions?: number
 }
 
 export interface Gem {
@@ -92,6 +95,14 @@ export interface SocketGroup {
   gems: Gem[]
 }
 
+export interface MinionSkillsInfo {
+  group: number
+  gem: string
+  beast: string | null
+  current_skill_index: number
+  skills: Array<{ index: number; name: string }>
+}
+
 export interface BuildSummary {
   info: BuildInfo
   dps: Record<string, unknown>
@@ -101,6 +112,7 @@ export interface BuildSummary {
   socket_groups: { groups: SocketGroup[]; main_socket_group: number }
   // alloc_mode: 0 normal, 1 weapon set 1, 2 weapon set 2
   allocated_nodes: Array<{ id: number; alloc_mode: number }>
+  minion_skills: MinionSkillsInfo[]
 }
 
 // gem-search result: per in-scope skill, the recommended supports + score delta

@@ -44,4 +44,5 @@ export type {
   GemProgressEvent,
   GemEndEvent,
   GemSnapshot,
+  MinionSkillsInfo,
 } from '../../wire-types.js'

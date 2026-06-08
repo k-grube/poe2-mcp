@@ -28,6 +28,7 @@ describe('getBuildSummary', () => {
           { id: 9, alloc_mode: 1 },
         ],
       },
+      get_minion_skills: { companions: [] },
     })
     const out = (await getBuildSummary(bridge, undefined)) as {
       info: { class_name: string }

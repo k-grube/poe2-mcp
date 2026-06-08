@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { GemStreamState } from './useGemSearchStream.js'
 
 const head: React.CSSProperties = { color: '#8a93a6', textTransform: 'uppercase', fontSize: 10, margin: '12px 0 4px' }
@@ -40,6 +40,24 @@ export function GemSearchPanel({ gem }: { gem: GemStreamState }) {
   const [error, setError] = useState<string | null>(null)
 
   const running = gem.status === 'running'
+  // tick a clock while running so the user sees something moving between progress events.
+  // start timestamp is a ref derived during render when running flips; a tick state forces
+  // re-renders every 250ms while running so the displayed elapsed value updates.
+  const startRef = useRef<number | null>(null)
+  if (running && startRef.current === null) {
+    startRef.current = Date.now()
+  } else if (!running && startRef.current !== null) {
+    startRef.current = null
+  }
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!running) {
+      return
+    }
+    const id = setInterval(() => setTick((t) => t + 1), 250)
+    return () => clearInterval(id)
+  }, [running])
+  const elapsed = startRef.current === null ? 0 : Math.floor((Date.now() - startRef.current) / 1000)
 
   async function post(url: string, body: unknown) {
     setBusy(true)
@@ -115,12 +133,21 @@ export function GemSearchPanel({ gem }: { gem: GemStreamState }) {
         </button>
       )}
 
-      {p ? (
+      {running ? (
         <div style={{ opacity: 0.7, fontSize: 11, marginTop: 6 }}>
-          {p.main_skill} ({p.group_ordinal}/{p.total_groups}) · {p.phase} {p.step}/{p.total_steps} ·{' '}
-          <span style={{ color: '#5bd97a' }}>
-            {Math.round((p.best_score / Math.max(p.score_before, 1) - 1) * 100)}%
-          </span>
+          {p ? (
+            <>
+              {p.main_skill} ({p.group_ordinal}/{p.total_groups}) · {p.phase} {p.step}/{p.total_steps} ·{' '}
+              <span style={{ color: '#5bd97a' }}>
+                {Math.round((p.best_score / Math.max(p.score_before, 1) - 1) * 100)}%
+              </span>{' '}
+              · <span style={{ opacity: 0.7 }}>{elapsed}s</span>
+            </>
+          ) : (
+            <>
+              starting… <span style={{ opacity: 0.7 }}>{elapsed}s</span>
+            </>
+          )}
         </div>
       ) : null}
       {error ? <div style={{ color: '#d95b5b', marginTop: 6 }}>{error}</div> : null}

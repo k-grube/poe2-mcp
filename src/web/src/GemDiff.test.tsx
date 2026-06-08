@@ -19,14 +19,14 @@ const results: GemSkillResult[] = [
 
 describe('GemDiff', () => {
   it('renders added, kept, removed + delta', () => {
-    render(<GemDiff results={results} />)
+    render(<GemDiff results={results} onMutate={() => {}} />)
     expect(screen.getByText('Elemental Focus')).toBeTruthy()
     expect(screen.getByText('Fork')).toBeTruthy()
     expect(screen.getByText(/\+53%/)).toBeTruthy()
   })
 
   it('renders nothing when empty', () => {
-    const { container } = render(<GemDiff results={[]} />)
+    const { container } = render(<GemDiff results={[]} onMutate={() => {}} />)
     expect(container.textContent).toBe('')
   })
 })

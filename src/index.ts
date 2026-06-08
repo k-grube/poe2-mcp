@@ -23,7 +23,7 @@ import { gemSearch, gemSearchStart, gemSearchCancel } from './ops/gem-search.js'
 import { gemEvents } from './gem-events.js'
 import { gemSnapshotOf } from './gem-snapshot.js'
 import { getActiveGemJob } from './gem-search-jobs.js'
-import { getActiveBuild, buildEvents } from './active-build.js'
+import { getActiveBuild, buildEvents, clearBaseline } from './active-build.js'
 import { dbg } from './debug.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -60,6 +60,32 @@ async function main() {
     httpRoute(bridge, loadBuild, (req) => req.body),
   )
   app.get('/api/build-summary', httpRoute(bridge, getBuildSummary))
+  app.post('/api/minion-skill', async (req, res) => {
+    try {
+      const { group, skill_index } = req.body as { group?: number; skill_index?: number }
+      if (typeof group !== 'number' || typeof skill_index !== 'number') {
+        res.status(400).json({ error: 'group and skill_index (numbers) required' })
+        return
+      }
+      const r = await bridge.send({ cmd: 'set_minion_skill', args: { group, skill_index } })
+      res.json(r.data)
+    } catch (err) {
+      res.status(409).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+  app.post('/api/main-socket-group', async (req, res) => {
+    try {
+      const { index } = req.body as { index?: number }
+      if (typeof index !== 'number') {
+        res.status(400).json({ error: 'index (number) required' })
+        return
+      }
+      const r = await bridge.send({ cmd: 'set_main_socket_group', args: { index } })
+      res.json(r.data)
+    } catch (err) {
+      res.status(409).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
   app.post(
     '/api/search',
     httpRoute(bridge, searchStart, (req) => req.body),
@@ -70,6 +96,10 @@ async function main() {
   )
   app.get('/api/export', httpRoute(bridge, exportBuild))
   app.post('/api/revert', httpRoute(bridge, revertBuild))
+  app.post('/api/gem-search/apply', (_req, res) => {
+    clearBaseline()
+    res.json({ ok: true })
+  })
   app.post(
     '/api/gem-search',
     httpRoute(bridge, gemSearch, (req) => req.body),

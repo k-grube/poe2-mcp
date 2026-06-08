@@ -28,3 +28,7 @@ export function setBaseline(xml: string): void {
 export function getBaseline(): string | null {
   return baseline
 }
+
+export function clearBaseline(): void {
+  baseline = null
+}

@@ -121,17 +121,36 @@ handlers["get_socket_groups"] = function(_args)
   if build.skillsTab and build.skillsTab.socketGroupList then
     for i, sg in ipairs(build.skillsTab.socketGroupList) do
       local main_skill = display_skill(sg)
+      -- companion gems share a mutable grantedEffect.name. resolve the specific beast
+      -- via the gem's skillMinion -> build.data.minions lookup, falling back to nameSpec.
+      local function resolve_gem_name(gem, ge)
+        if gem.nameSpec and gem.nameSpec:match("^Companion:") then
+          local minion = gem.skillMinion and build.data and build.data.minions
+                         and build.data.minions[gem.skillMinion]
+          if minion and minion.name then
+            return "Companion: " .. minion.name
+          end
+          return gem.nameSpec
+        end
+        return (ge and ge.name) or gem.nameSpec or "?"
+      end
       local gems = {}
+      local main_active_name = nil
       if sg.gemList then
         for _, gem in ipairs(sg.gemList) do
           local ge = gem.grantedEffect or (gem.gemData and gem.gemData.grantedEffect)
+          local resolved = resolve_gem_name(gem, ge)
           gems[#gems+1] = {
-            name    = (ge and ge.name) or gem.nameSpec or "?",
+            name    = resolved,
             support = (ge and ge.support) == true,
             enabled = gem.enabled ~= false,
             level   = gem.level,
             quality = gem.quality,
           }
+          if not main_active_name and not (ge and ge.support)
+             and gem.nameSpec and gem.nameSpec:match("^Companion:") then
+            main_active_name = resolved
+          end
         end
       end
       groups[#groups+1] = {
@@ -142,7 +161,8 @@ handlers["get_socket_groups"] = function(_args)
         is_main             = i == build.mainSocketGroup,
         slot                = sg.slot,
         source              = sg.source,
-        main_skill_name     = main_skill and main_skill.activeEffect and main_skill.activeEffect.grantedEffect and main_skill.activeEffect.grantedEffect.name,
+        main_skill_name     = main_active_name
+                              or (main_skill and main_skill.activeEffect and main_skill.activeEffect.grantedEffect and main_skill.activeEffect.grantedEffect.name),
         gem_count           = sg.gemList and #sg.gemList or 0,
         gems                = gems,
       }
@@ -216,6 +236,64 @@ local function build_info()
   }
 end
 
+-- poe.ninja exports Companion gems with only nameSpec ("Companion: <beast>") set, missing
+-- skillId/gemId/skillMinion + the <BeastCompanion id="..."/> Beast Library entries. PoB
+-- can't resolve them, so the gem has no minion and contributes 0 DPS. fix it in place:
+-- look up the beast metadata id by name in data.minions, write skillId/skillMinion onto
+-- the gem, register the beast into build.beastList, re-process + recalc. returns the
+-- number of gems we repaired so the caller can report it.
+local function fix_broken_companions()
+  if not (build and build.skillsTab and build.skillsTab.socketGroupList
+          and build.data and build.data.minions) then
+    return 0
+  end
+  -- name -> metadata id; prefer recommendedBeast variants when a name has multiple entries.
+  -- cheap to rebuild per load (data.minions is ~600 entries) and stays correct after pob updates.
+  local name_to_id = {}
+  for id, m in pairs(build.data.minions) do
+    if m.name and m.monsterCategory == "Beast" then
+      local existing = name_to_id[m.name]
+      if not existing then
+        name_to_id[m.name] = id
+      elseif m.extraFlags and m.extraFlags.recommendedBeast then
+        name_to_id[m.name] = id
+      end
+    end
+  end
+
+  local fixed, added_beasts = 0, {}
+  for _, sg in ipairs(build.skillsTab.socketGroupList) do
+    for _, gem in ipairs(sg.gemList or {}) do
+      if gem.nameSpec and gem.nameSpec:match("^Companion:") and not gem.gemData then
+        local beast_name = gem.nameSpec:match("^Companion: (.+)$")
+        local beast_id = beast_name and name_to_id[beast_name]
+        if beast_id then
+          gem.skillId = "SummonBeastPlayer"
+          gem.skillMinion = beast_id
+          gem.skillMinionSkill = gem.skillMinionSkill or 1
+          added_beasts[beast_id] = true
+          fixed = fixed + 1
+        end
+      end
+    end
+  end
+
+  if fixed > 0 then
+    build.beastList = build.beastList or {}
+    local in_list = {}
+    for _, id in ipairs(build.beastList) do in_list[id] = true end
+    for id, _ in pairs(added_beasts) do
+      if not in_list[id] then table.insert(build.beastList, id) end
+    end
+    for _, sg in ipairs(build.skillsTab.socketGroupList) do
+      build.skillsTab:ProcessSocketGroup(sg)
+    end
+    build.buildFlag = true
+    pcall(function() build.calcsTab:BuildOutput() end)
+  end
+  return fixed
+end
+
 -- node side handles base64+zlib decode; this handler only sees raw XML
 handlers["load_build"] = function(args)
   local xml = args and args.code
@@ -230,7 +308,10 @@ handlers["load_build"] = function(args)
     pcall(function() mainObject:OnFrame() end)
   end
   loaded = true
-  return {ok = true, data = build_info()}
+  local fixed = fix_broken_companions()
+  local info = build_info()
+  if fixed > 0 then info.fixed_companions = fixed end
+  return {ok = true, data = info}
 end
 
 handlers["get_build_info"] = function(_args)
@@ -255,8 +336,16 @@ handlers["get_dps"] = function(_args)
   if type(out.SkillDPS) == "table" then
     for _, s in ipairs(out.SkillDPS) do
       local count = s.count or 1
+      local name = s.name or "?"
+      -- PoB mutates the shared SummonBeastPlayer grantedEffect.name during calc, so every
+      -- Companion entry in SkillDPS ends up labelled with whichever beast was processed
+      -- last. skill_part is per-entry ("<beast>: <attack>"); recover the specific name.
+      if s.skillPart and name:match("^Companion: ") then
+        local beast = s.skillPart:match("^(.-): ")
+        if beast then name = "Companion: " .. beast end
+      end
       local entry = {
-        name  = s.name or "?",
+        name  = name,
         dps   = (s.dps or 0) * count,
         count = count,
       }
@@ -276,6 +365,223 @@ handlers["get_dps"] = function(_args)
     minion_dps   = safe_num(out, "MinionDPS") + safe_num(out, "TotalMinionDPS"),
     skills       = skills,
   }}
+end
+
+-- swap a Companion gem's beast (skillMinion) across a candidate list, run BuildOutput
+-- per swap, record the minion's TotalDPS, then restore the original beast. used to
+-- answer "which beast in my library would do the most damage in this socket group?"
+handlers["compare_companions"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local gi = (args and tonumber(args.group)) or build.mainSocketGroup
+  local sg = build.skillsTab and build.skillsTab.socketGroupList and build.skillsTab.socketGroupList[gi]
+  if not sg then return {ok = false, error = "no such socket group: " .. tostring(gi)} end
+
+  local companion_gem
+  for _, gem in ipairs(sg.gemList or {}) do
+    if gem.nameSpec and gem.nameSpec:match("^Companion:") then
+      companion_gem = gem
+      break
+    end
+  end
+  if not companion_gem then return {ok = false, error = "no Companion gem in group " .. gi} end
+
+  -- candidates: explicit list, the user's beast library, or every beast PoB knows about
+  local candidates
+  if args and args.beasts and type(args.beasts) == "table" then
+    candidates = args.beasts
+  elseif args and args.scope == "all" then
+    candidates = {}
+    if build.data and build.data.minions then
+      for id, m in pairs(build.data.minions) do
+        if m.monsterCategory == "Beast" then candidates[#candidates+1] = id end
+      end
+    end
+  else
+    candidates = build.beastList or {}
+  end
+
+  local orig_minion = companion_gem.skillMinion
+  local orig_skill  = companion_gem.skillMinionSkill
+
+  local function find_active_skill()
+    local env = build.calcsTab and build.calcsTab.mainEnv
+    if not (env and env.player and env.player.activeSkillList) then return nil end
+    for _, sk in ipairs(env.player.activeSkillList) do
+      if sk.activeEffect and sk.activeEffect.srcInstance == companion_gem then
+        return sk
+      end
+    end
+    return nil
+  end
+
+  local function rebuild()
+    build.buildFlag = true
+    pcall(function() build.calcsTab:BuildOutput() end)
+  end
+
+  local results = {}
+  for _, beast_id in ipairs(candidates) do
+    local mdata = build.data and build.data.minions and build.data.minions[beast_id]
+    if mdata then
+      -- the beast must be in build.beastList for CalcActiveSkill to pick it
+      local already_in_list = false
+      if build.beastList then
+        for _, id in ipairs(build.beastList) do
+          if id == beast_id then already_in_list = true break end
+        end
+      end
+      if not already_in_list then
+        build.beastList = build.beastList or {}
+        table.insert(build.beastList, beast_id)
+      end
+
+      companion_gem.skillMinion = beast_id
+      companion_gem.skillMinionSkill = 1
+      rebuild()
+      local sk = find_active_skill()
+      local n_skills = (sk and sk.minion and sk.minion.activeSkillList and #sk.minion.activeSkillList) or 0
+
+      local best_dps, best_skill_name, best_skill_index = 0, nil, nil
+      if n_skills > 0 then
+        -- skill 1 is already computed
+        for ski = 1, n_skills do
+          if ski > 1 then
+            companion_gem.skillMinionSkill = ski
+            rebuild()
+            sk = find_active_skill()
+          end
+          local mdps = (sk and sk.minion and sk.minion.output and sk.minion.output.TotalDPS) or 0
+          if mdps > best_dps then
+            best_dps = mdps
+            best_skill_index = ski
+            local ms = sk and sk.minion and sk.minion.mainSkill
+            best_skill_name = ms and ms.activeEffect and ms.activeEffect.grantedEffect and ms.activeEffect.grantedEffect.name
+            local part = ms and ms.skillPartName
+            if part and part ~= "" then best_skill_name = (best_skill_name or "?") .. ": " .. part end
+          end
+        end
+      end
+
+      results[#results+1] = {
+        beast_id         = beast_id,
+        beast_name       = mdata.name,
+        dps              = best_dps,
+        best_skill       = best_skill_name,
+        best_skill_index = best_skill_index,
+        skills_evaluated = n_skills,
+      }
+
+      if not already_in_list and build.beastList then
+        for i = #build.beastList, 1, -1 do
+          if build.beastList[i] == beast_id then table.remove(build.beastList, i); break end
+        end
+      end
+    end
+  end
+
+  companion_gem.skillMinion = orig_minion
+  companion_gem.skillMinionSkill = orig_skill
+  rebuild()
+
+  table.sort(results, function(a, b) return a.dps > b.dps end)
+  return {ok = true, data = {
+    group     = gi,
+    gem       = companion_gem.nameSpec,
+    candidates_evaluated = #results,
+    results   = results,
+  }}
+end
+
+-- list every Companion gem's available minion skills, indexed for use as
+-- gem_search { minion_skill_index } or set_minion_skill { skill_index }. each entry has
+-- the socket group + beast + the list of minion skill names with their 1-based index.
+handlers["get_minion_skills"] = function(_args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local env = build.calcsTab and build.calcsTab.mainEnv
+  if not (env and env.player and env.player.activeSkillList) then
+    return {ok = false, error = "no activeSkillList"}
+  end
+  local out = {}
+  if build.skillsTab and build.skillsTab.socketGroupList then
+    for gi, sg in ipairs(build.skillsTab.socketGroupList) do
+      local companion = nil
+      for _, gem in ipairs(sg.gemList or {}) do
+        if gem.nameSpec and gem.nameSpec:match("^Companion:") then
+          companion = gem
+          break
+        end
+      end
+      if companion then
+        local sk_ref
+        for _, sk in ipairs(env.player.activeSkillList) do
+          if sk.activeEffect and sk.activeEffect.srcInstance == companion then
+            sk_ref = sk
+            break
+          end
+        end
+        local skills = {}
+        if sk_ref and sk_ref.minion and sk_ref.minion.activeSkillList then
+          for i, ms in ipairs(sk_ref.minion.activeSkillList) do
+            local name = ms.activeEffect and ms.activeEffect.grantedEffect and ms.activeEffect.grantedEffect.name
+            local part = ms.skillPartName
+            local label = name or "?"
+            if part and part ~= "" then label = label .. ": " .. part end
+            skills[#skills+1] = { index = i, name = label }
+          end
+        end
+        local beast_name = companion.skillMinion and build.data and build.data.minions
+                           and build.data.minions[companion.skillMinion]
+                           and build.data.minions[companion.skillMinion].name
+        out[#out+1] = {
+          group = gi,
+          gem = companion.nameSpec,
+          beast = beast_name,
+          current_skill_index = companion.skillMinionSkill or 1,
+          skills = skills,
+        }
+      end
+    end
+  end
+  return {ok = true, data = {companions = out}}
+end
+
+-- set which socket group is the build's "main" (drives main_skill in build_info, main_dps in
+-- get_dps, etc). 1-based index into build.skillsTab.socketGroupList.
+handlers["set_main_socket_group"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local i = args and tonumber(args.index)
+  if not i then return {ok = false, error = "args.index (1-based) required"} end
+  local sg = build.skillsTab and build.skillsTab.socketGroupList and build.skillsTab.socketGroupList[i]
+  if not sg then return {ok = false, error = "no socket group at index " .. i} end
+  build.mainSocketGroup = i
+  build.buildFlag = true
+  pcall(function() build.calcsTab:BuildOutput() end)
+  return {ok = true, data = {main_socket_group = i}}
+end
+
+-- set the minion skill index for a Companion gem in a specific socket group, then rebuild
+-- so the choice is reflected in get_dps and downstream metrics.
+handlers["set_minion_skill"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local gi = args and tonumber(args.group)
+  local ski = args and tonumber(args.skill_index)
+  if not gi or not ski or ski < 1 then
+    return {ok = false, error = "args.group (1-based) and args.skill_index (>=1) required"}
+  end
+  local sg = build.skillsTab and build.skillsTab.socketGroupList and build.skillsTab.socketGroupList[gi]
+  if not sg then return {ok = false, error = "no socket group at index " .. gi} end
+  local companion
+  for _, gem in ipairs(sg.gemList or {}) do
+    if gem.nameSpec and gem.nameSpec:match("^Companion:") then
+      companion = gem
+      break
+    end
+  end
+  if not companion then return {ok = false, error = "no Companion gem in group " .. gi} end
+  companion.skillMinionSkill = ski
+  build.buildFlag = true
+  pcall(function() build.calcsTab:BuildOutput() end)
+  return {ok = true, data = {group = gi, skill_index = ski}}
 end
 
 handlers["get_ehp"] = function(_args)

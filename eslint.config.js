@@ -3,10 +3,14 @@ import tseslint from 'typescript-eslint'
 import eslintConfigPrettier from 'eslint-config-prettier'
 import react from 'eslint-plugin-react'
 import reactHooks from 'eslint-plugin-react-hooks'
+import reactYouMightNotNeedAnEffect from 'eslint-plugin-react-you-might-not-need-an-effect'
+import reactCompiler from 'eslint-plugin-react-compiler'
 
 export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
+  reactYouMightNotNeedAnEffect.configs.strict,
+  reactCompiler.configs.recommended,
   eslintConfigPrettier,
   {
     ignores: [
