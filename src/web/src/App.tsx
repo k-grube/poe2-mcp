@@ -8,6 +8,7 @@ import { diffNodeIds } from './nodeStyle.js'
 import { TreeCanvas } from './TreeCanvas.js'
 import { Hud } from './Hud.js'
 import { Sidebar } from './Sidebar.js'
+import { RightPanel, type RightPanelSpec } from './RightPanel.js'
 
 const EMPTY = new Set<number>()
 
@@ -18,6 +19,7 @@ export function App() {
   const { summary, error: summaryError, refetch: refetchSummary } = useBuildSummary(stream.buildInfo)
   const [hover, setHover] = useState<TreeNode | null>(null)
   const [view, setView] = useState<'after' | 'before'>('after')
+  const [rightPanel, setRightPanel] = useState<RightPanelSpec | null>(null)
   const byId = useMemo(() => new Map((layout?.nodes ?? []).map((n) => [n.id, n])), [layout])
 
   // baseline = the build's allocation before the search (the summary is fetched on
@@ -41,8 +43,15 @@ export function App() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex' }}>
-      <Sidebar summary={summary} summaryError={summaryError} stream={stream} gem={gem} onMutate={refetchSummary} />
-      <div style={{ flex: 1, position: 'relative' }}>
+      <Sidebar
+        summary={summary}
+        summaryError={summaryError}
+        stream={stream}
+        gem={gem}
+        onMutate={refetchSummary}
+        onShowRight={setRightPanel}
+      />
+      <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
         {layout ? (
           <>
             <TreeCanvas
@@ -62,6 +71,7 @@ export function App() {
           </div>
         )}
       </div>
+      <RightPanel spec={rightPanel} onClose={() => setRightPanel(null)} />
     </div>
   )
 }

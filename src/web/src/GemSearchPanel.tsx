@@ -36,6 +36,7 @@ export function GemSearchPanel({ gem }: { gem: GemStreamState }) {
   const [objective, setObjective] = useState('FullDPS')
   const [scope, setScope] = useState('main')
   const [idealized, setIdealized] = useState(true)
+  const [excludeLineage, setExcludeLineage] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -80,7 +81,12 @@ export function GemSearchPanel({ gem }: { gem: GemStreamState }) {
   }
 
   function start() {
-    void post('/api/gem-search/start', { objective: { stat: objective }, mode: { idealized }, scope })
+    void post('/api/gem-search/start', {
+      objective: { stat: objective },
+      mode: { idealized },
+      scope,
+      exclude_lineage: excludeLineage,
+    })
   }
   function cancel() {
     if (!gem.jobId) {
@@ -121,6 +127,15 @@ export function GemSearchPanel({ gem }: { gem: GemStreamState }) {
           <option value="ideal">idealized (Q20, 5 sockets)</option>
           <option value="import">as-imported</option>
         </select>
+      </label>
+      <label style={{ ...row, cursor: 'pointer' }}>
+        <span style={{ opacity: 0.7 }}>exclude lineage</span>
+        <input
+          type="checkbox"
+          checked={excludeLineage}
+          onChange={(e) => setExcludeLineage(e.target.checked)}
+          disabled={running}
+        />
       </label>
 
       {running ? (

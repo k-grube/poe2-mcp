@@ -75,6 +75,9 @@ export interface BuildInfo {
 }
 
 export interface Gem {
+  // gem id from PoB's data.gems map, e.g. "Metadata/Items/Gems/SkillGemFeedingFrenzySupport".
+  // null for unresolved gems (poe.ninja exports of Companion gems before auto-fix runs)
+  id: string | null
   name: string
   support: boolean
   enabled: boolean

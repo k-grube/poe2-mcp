@@ -30,8 +30,8 @@ const summary: BuildSummary = {
         main_skill_name: 'Gas Arrow',
         gem_count: 2,
         gems: [
-          { name: 'Gas Arrow', support: false, enabled: true, level: 20, quality: 0 },
-          { name: 'Deadly Poison', support: true, enabled: true, level: 20, quality: 0 },
+          { id: null, name: 'Gas Arrow', support: false, enabled: true, level: 20, quality: 0 },
+          { id: null, name: 'Deadly Poison', support: true, enabled: true, level: 20, quality: 0 },
         ],
       },
     ],
@@ -82,7 +82,7 @@ describe('SummaryPanel', () => {
             source: null,
             main_skill_name: 'Wild Protector',
             gem_count: 1,
-            gems: [{ name: 'Wild Protector', support: false, enabled: true, level: 19, quality: 0 }],
+            gems: [{ id: null, name: 'Wild Protector', support: false, enabled: true, level: 19, quality: 0 }],
           },
           {
             index: 2,
@@ -94,7 +94,7 @@ describe('SummaryPanel', () => {
             source: 'Tree:62743',
             main_skill_name: 'Wild Protector',
             gem_count: 1,
-            gems: [{ name: 'Wild Protector', support: false, enabled: true, level: 1, quality: 0 }],
+            gems: [{ id: null, name: 'Wild Protector', support: false, enabled: true, level: 1, quality: 0 }],
           },
         ],
         main_socket_group: 1,

@@ -1,4 +1,5 @@
 import type { ToolBody } from '../tools/define-tool.js'
+import { setCachedSummary } from '../active-build.js'
 
 // one-call build summary: aggregates the per-area lua handlers. if no build is
 // loaded the first send throws "no build loaded" -> httpRoute maps to 409.
@@ -27,5 +28,7 @@ export const getBuildSummary: ToolBody = async (bridge) => {
     }>
   }
   const minion_skills = minionSkillsResp?.companions ?? []
-  return { info, dps, ehp, breakpoints, tree, socket_groups, allocated_nodes, minion_skills }
+  const summary = { info, dps, ehp, breakpoints, tree, socket_groups, allocated_nodes, minion_skills }
+  setCachedSummary(summary)
+  return summary
 }

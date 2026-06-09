@@ -7,6 +7,7 @@ import { GemDiff } from './GemDiff.js'
 import type { BuildSummary } from './types.js'
 import type { StreamState } from './useSearchStream.js'
 import type { GemStreamState } from './useGemSearchStream.js'
+import type { RightPanelSpec } from './RightPanel.js'
 
 const panel: React.CSSProperties = {
   width: 320,
@@ -27,12 +28,14 @@ export function Sidebar({
   stream,
   gem,
   onMutate,
+  onShowRight,
 }: {
   summary: BuildSummary | null
   summaryError: string | null
   stream: StreamState
   gem: GemStreamState
   onMutate: () => void
+  onShowRight: (spec: RightPanelSpec | null) => void
 }) {
   return (
     <div style={panel}>
@@ -41,7 +44,7 @@ export function Sidebar({
       <hr style={{ border: 'none', borderTop: '1px solid #2a3140', margin: '12px 0' }} />
       {summary ? (
         <>
-          <SummaryPanel summary={summary} onMutate={onMutate} />
+          <SummaryPanel summary={summary} onMutate={onMutate} onShowRight={onShowRight} />
           <SearchPanel stream={stream} />
           <BuildActions stream={stream} />
           <GemSearchPanel gem={gem} />

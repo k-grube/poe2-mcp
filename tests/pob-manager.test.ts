@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { execFile } from 'node:child_process'
 import { access } from 'node:fs/promises'
+import { isAbsolute } from 'node:path'
 
 vi.mock('node:child_process', () => ({ execFile: vi.fn() }))
 vi.mock('node:fs/promises', () => ({ access: vi.fn(), mkdir: vi.fn() }))
@@ -19,7 +20,7 @@ describe('getPob2Dir', () => {
   })
 
   it('is absolute', () => {
-    expect(getPob2Dir().startsWith('/')).toBe(true)
+    expect(isAbsolute(getPob2Dir())).toBe(true)
   })
 })
 

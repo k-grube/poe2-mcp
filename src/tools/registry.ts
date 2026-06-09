@@ -42,6 +42,13 @@ import {
   setDefinition as msSetDef,
   setHandler as msSetHandler,
 } from './minion-skills.js'
+import { definition as explainStatDef, handler as explainStatHandler } from './explain-stat.js'
+import {
+  searchDefinition as wikiSearchDef,
+  searchHandler as wikiSearchHandler,
+  pageDefinition as wikiPageDef,
+  pageHandler as wikiPageHandler,
+} from './poe2-wiki.js'
 import { definition as exportDef, handler as exportHandler } from './export-build.js'
 import { definition as revertDef, handler as revertHandler } from './revert-build.js'
 import { definition as gemSearchDef, handler as gemSearchHandler } from './gem-search.js'
@@ -59,6 +66,9 @@ const entries: Array<{ definition: Tool; handler: Handler }> = [
   { definition: compareCompanionsDef, handler: compareCompanionsHandler },
   { definition: msGetDef, handler: msGetHandler },
   { definition: msSetDef, handler: msSetHandler },
+  { definition: explainStatDef, handler: explainStatHandler },
+  { definition: wikiSearchDef, handler: wikiSearchHandler },
+  { definition: wikiPageDef, handler: wikiPageHandler },
   { definition: dpsDef, handler: dpsHandler },
   { definition: ehpDef, handler: ehpHandler },
   { definition: bpDef, handler: bpHandler },

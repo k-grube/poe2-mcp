@@ -141,6 +141,7 @@ handlers["get_socket_groups"] = function(_args)
           local ge = gem.grantedEffect or (gem.gemData and gem.gemData.grantedEffect)
           local resolved = resolve_gem_name(gem, ge)
           gems[#gems+1] = {
+            id      = gem.gemId,
             name    = resolved,
             support = (ge and ge.support) == true,
             enabled = gem.enabled ~= false,
@@ -220,7 +221,22 @@ local function build_info()
   local b = build
   local sg = b.skillsTab and b.skillsTab.socketGroupList and b.skillsTab.socketGroupList[b.mainSocketGroup]
   local skill = display_skill(sg)
-  -- weapon-set point cap: campaign quest points (24) + conversions (Weapon Master)
+  local main_skill_name = skill and skill.activeEffect and skill.activeEffect.grantedEffect and skill.activeEffect.grantedEffect.name
+  -- Companion gems share a mutable grantedEffect.name; resolve via the gem's
+  -- skillMinion -> data.minions lookup so the header reflects this group's beast
+  if sg and sg.gemList then
+    for _, gem in ipairs(sg.gemList) do
+      if gem.nameSpec and gem.nameSpec:match("^Companion:") then
+        local mdata = gem.skillMinion and b.data and b.data.minions and b.data.minions[gem.skillMinion]
+        if mdata and mdata.name then
+          main_skill_name = "Companion: " .. mdata.name
+        else
+          main_skill_name = gem.nameSpec
+        end
+        break
+      end
+    end
+  end
   local weapon_sets
   if b.spec and b.spec.CountAllocNodes then
     local _u, _a, _sa, _so, ws1, ws2 = b.spec:CountAllocNodes()
@@ -231,7 +247,7 @@ local function build_info()
     class_name = (b.spec and b.spec.curClassName) or "unknown",
     ascendancy = (b.spec and b.spec.curAscendClassName) or "none",
     level      = b.characterLevel or 0,
-    main_skill = (skill and skill.activeEffect and skill.activeEffect.grantedEffect and skill.activeEffect.grantedEffect.name) or "unknown",
+    main_skill = main_skill_name or "unknown",
     weapon_sets = weapon_sets,
   }
 end
@@ -596,6 +612,62 @@ handlers["get_ehp"] = function(_args)
     evasion        = safe_num(out, "Evasion"),
     block_chance   = safe_num(out, "BlockChance"),
     spell_suppress = safe_num(out, "SpellSuppressionChance"),
+  }}
+end
+
+-- break a player-level stat into the mods that build it: every BASE/INC/MORE/FLAG
+-- contribution from items, tree, gems, class base, config etc. uses PoB's
+-- modDB:Tabulate (ModStore.lua), the same enumeration the breakdown UI feeds on.
+-- works for raw modDB stats (Life, Mana, ES, Str/Dex/Int, FireResist, ...). doesn't
+-- work for derived/calc-pipeline values (FullDPS, TotalDPS, TotalEHP) -- those need
+-- sensitivity analysis (disable-mod-and-recompute), not a flat tabulation.
+handlers["explain_stat"] = function(args)
+  if not loaded then return {ok = false, error = "no build loaded"} end
+  local stat = args and args.stat
+  if not stat or stat == "" then return {ok = false, error = "args.stat required (e.g. \"Life\")"} end
+  local env = build.calcsTab and build.calcsTab.mainEnv
+  if not (env and env.player and env.player.modDB) then
+    return {ok = false, error = "no player modDB"}
+  end
+  local modDB = env.player.modDB
+  local out = env.player.output or {}
+  -- enrich PoB's tree source ("Tree:<nodeId>") with the node's name so the UI shows
+  -- "Tree:50459:Heart of the Warrior" alongside the other already-labeled sources
+  local nodes = build.spec and build.spec.nodes or {}
+  local function label_source(source)
+    if type(source) ~= "string" then return "?" end
+    local tree_id = source:match("^Tree:(%d+)$")
+    if tree_id then
+      local node = nodes[tonumber(tree_id)]
+      local nm = node and node.name
+      if nm and nm ~= "" then
+        return "Tree:" .. tree_id .. ":" .. nm
+      end
+    end
+    return source
+  end
+  local function collect(modType)
+    local rows, tab = {}, modDB:Tabulate(modType, nil, stat)
+    if type(tab) ~= "table" then return rows end
+    for _, entry in ipairs(tab) do
+      local m = entry.mod
+      if m then
+        rows[#rows+1] = {
+          value  = m.value,
+          source = label_source(m.source),
+          name   = m.name,
+        }
+      end
+    end
+    return rows
+  end
+  return {ok = true, data = {
+    stat       = stat,
+    total      = out[stat],
+    base       = collect("BASE"),
+    increased  = collect("INC"),
+    more       = collect("MORE"),
+    flags      = collect("FLAG"),
   }}
 end
 

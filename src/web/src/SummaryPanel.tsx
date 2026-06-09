@@ -1,5 +1,7 @@
 import type { BuildSummary, SocketGroup, Gem, MinionSkillsInfo } from './types.js'
 import { SET1, SET2 } from './nodeStyle.js'
+import type { RightPanelSpec } from './RightPanel.js'
+import { ExplainStatPanel } from './ExplainStatPanel.js'
 
 const fmt = (n: unknown): string => (typeof n === 'number' ? Math.round(n).toLocaleString() : '-')
 
@@ -17,7 +19,19 @@ function gemMeta(x: Gem): string {
 }
 
 // capped -> green, under cap / negative -> red, unknown cap -> default
-function Res({ label, value, capped }: { label: string; value?: number; capped?: boolean }) {
+function Res({
+  label,
+  stat,
+  value,
+  capped,
+  onExplain,
+}: {
+  label: string
+  stat: string
+  value?: number
+  capped?: boolean
+  onExplain: (stat: string, title: string) => void
+}) {
   let color = '#cdd3dd'
   if (capped === true) {
     color = GREEN
@@ -25,11 +39,17 @@ function Res({ label, value, capped }: { label: string; value?: number; capped?:
     color = RED
   }
   return (
-    <span style={{ color }}>
+    <span
+      style={{ color, cursor: 'pointer' }}
+      onClick={() => onExplain(stat, `${label} ${value ?? '-'}`)}
+      title="click to explain"
+    >
       {label} {value ?? '-'}
     </span>
   )
 }
+
+const explainable: React.CSSProperties = { cursor: 'pointer', borderBottom: '1px dotted #4a5160' }
 
 function SkillGroup({
   g,
@@ -97,9 +117,44 @@ function SkillGroup({
         <MinionSkillSelect group={g.index} info={minionInfo} onMutate={onMutate} />
       ) : null}
       {supports.map((x, i) => (
-        <div key={`s${i}`} style={{ paddingLeft: 16, opacity: 0.6 }}>
-          + {x.name}
-          {gemMeta(x)}
+        <div key={`s${i}`} style={{ paddingLeft: 16, opacity: 0.6, display: 'flex', gap: 4, alignItems: 'center' }}>
+          <span>
+            + {x.name}
+            {gemMeta(x)}
+          </span>
+          {x.id ? (
+            <button
+              title={`reroll just this support (keep the other ${supports.length - 1} fixed)`}
+              onClick={async (e) => {
+                e.stopPropagation()
+                const r = await fetch('/api/gem-search/start', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    objective: { stat: 'FullDPS' },
+                    mode: { idealized: true },
+                    scope: [g.index],
+                    reroll: x.id,
+                  }),
+                })
+                if (r.ok) {
+                  onMutate()
+                }
+              }}
+              style={{
+                background: 'transparent',
+                border: '1px solid #2a3140',
+                borderRadius: 4,
+                color: '#8a93a6',
+                cursor: 'pointer',
+                font: 'inherit',
+                padding: '0 4px',
+                opacity: 0.85,
+              }}
+            >
+              ↻
+            </button>
+          ) : null}
         </div>
       ))}
     </div>
@@ -142,7 +197,20 @@ function MinionSkillSelect({ group, info, onMutate }: { group: number; info: Min
   )
 }
 
-export function SummaryPanel({ summary, onMutate }: { summary: BuildSummary; onMutate: () => void }) {
+export function SummaryPanel({
+  summary,
+  onMutate,
+  onShowRight,
+}: {
+  summary: BuildSummary
+  onMutate: () => void
+  onShowRight?: (spec: RightPanelSpec | null) => void
+}) {
+  const explain = (stat: string, title: string) => {
+    if (onShowRight) {
+      onShowRight({ title, body: () => <ExplainStatPanel stat={stat} /> })
+    }
+  }
   const { info, dps, ehp, breakpoints, tree, socket_groups } = summary
   const d = dps as { full_dps?: number; skills?: Array<{ name: string; dps: number }> }
   // skills[] from get_dps is sorted dps desc; keep the highest per name so
@@ -156,10 +224,17 @@ export function SummaryPanel({ summary, onMutate }: { summary: BuildSummary; onM
   // PoB auto-generates socket groups from item/passive grants (source = "Item:..." / "Tree:...").
   // these are shown separately in PoB's own ui; treat them as not part of the user's build here
   // so the same skill doesn't appear twice (once as the real group, once as the L1 grant)
-  const userGroups = socket_groups.groups.filter((g) => {
-    const src = g.source ?? ''
-    return !src.startsWith('Item:') && !src.startsWith('Tree:')
-  })
+  const userGroups = socket_groups.groups
+    .filter((g) => {
+      const src = g.source ?? ''
+      return !src.startsWith('Item:') && !src.startsWith('Tree:')
+    })
+    .map((g) => {
+      const groupDps = g.gems.filter((x) => !x.support).reduce((m, x) => Math.max(m, skillDps.get(x.name) ?? 0), 0)
+      return { g, groupDps }
+    })
+    .sort((a, b) => b.groupDps - a.groupDps)
+    .map((x) => x.g)
   const minionByGroup = new Map((summary.minion_skills ?? []).map((m) => [m.group, m]))
   const e = ehp as {
     total_ehp?: number
@@ -195,20 +270,46 @@ export function SummaryPanel({ summary, onMutate }: { summary: BuildSummary; onM
       <div style={head}>defense</div>
       <div>EHP {fmt(e.total_ehp)}</div>
       <div>
-        life {fmt(e.life)} · ES {fmt(e.es)}
-        {e.ward ? ` · ward ${fmt(e.ward)}` : ''}
+        <span style={explainable} onClick={() => explain('Life', `life ${fmt(e.life)}`)}>
+          life {fmt(e.life)}
+        </span>{' '}
+        ·{' '}
+        <span style={explainable} onClick={() => explain('EnergyShield', `ES ${fmt(e.es)}`)}>
+          ES {fmt(e.es)}
+        </span>
+        {e.ward ? (
+          <>
+            {' '}
+            ·{' '}
+            <span style={explainable} onClick={() => explain('Ward', `ward ${fmt(e.ward)}`)}>
+              ward {fmt(e.ward)}
+            </span>
+          </>
+        ) : null}
       </div>
       <div>
-        armour {fmt(e.armour)} · evasion {fmt(e.evasion)}
+        <span style={explainable} onClick={() => explain('Armour', `armour ${fmt(e.armour)}`)}>
+          armour {fmt(e.armour)}
+        </span>{' '}
+        ·{' '}
+        <span style={explainable} onClick={() => explain('Evasion', `evasion ${fmt(e.evasion)}`)}>
+          evasion {fmt(e.evasion)}
+        </span>
       </div>
       <div>
         block {e.block_chance ?? 0}% · suppress {e.spell_suppress ?? 0}%
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 2 }}>
-        <Res label="fire" value={bp.fire_res} capped={bp.fire_res_capped} />
-        <Res label="cold" value={bp.cold_res} capped={bp.cold_res_capped} />
-        <Res label="light" value={bp.lightning_res} capped={bp.lightning_res_capped} />
-        <Res label="chaos" value={bp.chaos_res} />
+        <Res label="fire" stat="FireResist" value={bp.fire_res} capped={bp.fire_res_capped} onExplain={explain} />
+        <Res label="cold" stat="ColdResist" value={bp.cold_res} capped={bp.cold_res_capped} onExplain={explain} />
+        <Res
+          label="light"
+          stat="LightningResist"
+          value={bp.lightning_res}
+          capped={bp.lightning_res_capped}
+          onExplain={explain}
+        />
+        <Res label="chaos" stat="ChaosResist" value={bp.chaos_res} onExplain={explain} />
       </div>
 
       <div style={head}>skills</div>

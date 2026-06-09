@@ -18,6 +18,7 @@ export function getActiveBuild(): BuildInfo | null {
 export function setActiveBuild(info: BuildInfo): void {
   current = info
   baseline = null
+  summaryCache = null
   buildEvents.emit('build', info)
 }
 
@@ -31,4 +32,21 @@ export function getBaseline(): string | null {
 
 export function clearBaseline(): void {
   baseline = null
+}
+
+// last successful build-summary payload, returned during long-running searches so
+// /api/build-summary doesn't block behind a gem_search_step. cleared when the active
+// build changes; refreshed by build-summary fetches that complete normally.
+let summaryCache: unknown = null
+
+export function getCachedSummary(): unknown {
+  return summaryCache
+}
+
+export function setCachedSummary(summary: unknown): void {
+  summaryCache = summary
+}
+
+export function clearCachedSummary(): void {
+  summaryCache = null
 }

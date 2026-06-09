@@ -25,14 +25,17 @@ end
 -- every support gem PoB says can support this group's active skill, filtered by attribute
 -- feasibility. returns a list of { id, name, gemData, lineage, family }. family/lineage come
 -- off grantedEffect (gemFamily is an array there, the same source CalcSetup lineage logic reads).
-function gem.valid_supports(group, mode)
+-- opts.exclude_lineage drops every lineage-tagged support from the pool.
+function gem.valid_supports(group, mode, opts)
   local out = {}
   local active = gem.active_skill(group)
   if not active then return out end
+  local exclude_lineage = opts and opts.exclude_lineage
   for gemId, gemData in pairs(build.data.gems) do
     local ge = gemData.grantedEffect
     if ge and ge.support and calcLib.canGrantedEffectSupportActiveSkill(ge, active)
-       and gem.feasible(gemData, mode) then
+       and gem.feasible(gemData, mode)
+       and not (exclude_lineage and ge.isLineage) then
       out[#out+1] = {
         id = gemId, name = ge.name, gemData = gemData,
         lineage = ge.isLineage == true,
@@ -181,9 +184,25 @@ function gem._advance_group(state)
     if ge and ge.support and inst.gemId then state.prev[inst.gemId] = ge.name or "?" end
   end
   state.before_score = gem.score(state.objective, group, state.pin_minion_skill)
-  state.pool = gem.valid_supports(group, state.mode)
+  state.pool = gem.valid_supports(group, state.mode, { exclude_lineage = state.exclude_lineage })
   state.k = gem.socket_count(group, state.mode)
   state.chosen, state.chosen_set, state.socket = {}, {}, 0
+  -- reroll mode: keep every current support except the targeted one fixed, only fill
+  -- the freed slot. effectively "find me a better replacement for THIS gem".
+  if state.reroll then
+    for _, inst in ipairs(group.gemList) do
+      local ge = inst.grantedEffect or (inst.gemData and inst.gemData.grantedEffect)
+      if ge and ge.support and inst.gemId and inst.gemId ~= state.reroll then
+        state.chosen[#state.chosen+1] = inst.gemId
+        state.chosen_set[inst.gemId] = true
+        if ge.isLineage and ge.gemFamily and ge.gemFamily[1] then
+          state.lineage[ge.gemFamily[1]] = (lineage_remaining(state.lineage, ge.gemFamily[1], state.cap)) - 1
+        end
+      end
+    end
+    state.socket = #state.chosen
+    gem.set_supports(group, state.chosen, state.mode)
+  end
   state.phase, state.ga, state.gen = "greedy", nil, 0
 end
 
@@ -375,6 +394,8 @@ function gem.start(args)
     polish_gens = tonumber(args.polish_generations) or 5,
     polish_pop = tonumber(args.polish_population) or 6,
     pin_minion_skill = pin_minion_skill,
+    exclude_lineage = args.exclude_lineage == true,
+    reroll = type(args.reroll) == "string" and args.reroll or nil,
     results = {}, finished = false,
   }
   -- when an explicit index was given, write it onto every companion gem in scope so the

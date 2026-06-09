@@ -23,7 +23,8 @@ import { gemSearch, gemSearchStart, gemSearchCancel } from './ops/gem-search.js'
 import { gemEvents } from './gem-events.js'
 import { gemSnapshotOf } from './gem-snapshot.js'
 import { getActiveGemJob } from './gem-search-jobs.js'
-import { getActiveBuild, buildEvents, clearBaseline } from './active-build.js'
+import { getActiveBuild, buildEvents, clearBaseline, getCachedSummary } from './active-build.js'
+import { anySearchRunning } from './search-lock.js'
 import { dbg } from './debug.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -59,7 +60,19 @@ async function main() {
     '/api/load-build',
     httpRoute(bridge, loadBuild, (req) => req.body),
   )
-  app.get('/api/build-summary', httpRoute(bridge, getBuildSummary))
+  // when a tree or gem search owns the bridge, /api/build-summary would queue behind
+  // a multi-minute step. fall back to the last successful summary so a page refresh
+  // mid-search still shows the build instead of hanging.
+  app.get('/api/build-summary', async (req, res) => {
+    if (anySearchRunning().running) {
+      const cached = getCachedSummary()
+      if (cached) {
+        res.json(cached)
+        return
+      }
+    }
+    return httpRoute(bridge, getBuildSummary)(req, res)
+  })
   app.post('/api/minion-skill', async (req, res) => {
     try {
       const { group, skill_index } = req.body as { group?: number; skill_index?: number }
@@ -81,6 +94,19 @@ async function main() {
         return
       }
       const r = await bridge.send({ cmd: 'set_main_socket_group', args: { index } })
+      res.json(r.data)
+    } catch (err) {
+      res.status(409).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+  app.post('/api/explain-stat', async (req, res) => {
+    try {
+      const { stat } = req.body as { stat?: string }
+      if (typeof stat !== 'string' || !stat) {
+        res.status(400).json({ error: 'stat (string) required' })
+        return
+      }
+      const r = await bridge.send({ cmd: 'explain_stat', args: { stat } })
       res.json(r.data)
     } catch (err) {
       res.status(409).json({ error: err instanceof Error ? err.message : String(err) })

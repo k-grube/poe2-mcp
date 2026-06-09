@@ -6,7 +6,7 @@ export const { definition, handler } = defineTool(
     name: 'gem_search_start',
     description:
       'Start an async gem-support optimization and return a job_id immediately. Streams progress; poll gem_search_status({job_id}) then gem_search_result({job_id}). ' +
-      'objective {stat|weights}, mode {idealized:bool}, scope "main"|"all", minion_skill_index (1-based, see get_minion_skills — pins a Companion gem to that skill instead of iterating). Mutates the live build (revert_build undoes it). Call load_build first.',
+      'objective {stat|weights}, mode {idealized:bool}, scope "main"|"all", minion_skill_index (1-based, see get_minion_skills — pins a Companion gem to that skill instead of iterating), exclude_lineage (drop every lineage support from the candidate pool, useful when the user wants tier-I/II options or a lineage-free rebuild), reroll (gem id from get_socket_groups; keeps every other current support fixed and only fills the freed slot, useful for "find me a better replacement for THIS gem" without disturbing expensive picks). Mutates the live build (revert_build undoes it). Call load_build first.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -16,6 +16,15 @@ export const { definition, handler } = defineTool(
         minion_skill_index: {
           type: 'number',
           description: 'pin a Companion gem to this minion skill index instead of iterating',
+        },
+        exclude_lineage: {
+          type: 'boolean',
+          description: 'drop every lineage support from the candidate pool',
+        },
+        reroll: {
+          type: 'string',
+          description:
+            'gem id (Metadata/Items/Gems/...) of a current support to swap out; every other support stays fixed',
         },
       },
     },

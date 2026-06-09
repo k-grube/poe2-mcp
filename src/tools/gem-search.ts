@@ -10,6 +10,8 @@ export const { definition, handler } = defineTool(
       'mode: { idealized: true } (level 20, Q20, 5 sockets) or { idealized: false } (as-imported). ' +
       'scope: "main" (default), "all", or an array of socket-group indices. ' +
       "minion_skill_index: 1-based index into a Companion gem's minion skills (see get_minion_skills). When set, the optimizer pins the minion to that skill instead of iterating every minion skill per support trial (~3x faster). Default: iterate and pick the best per trial. " +
+      'exclude_lineage: drop every lineage support from the candidate pool. ' +
+      'reroll: gem id (Metadata/...) of a current support to swap out; every other support stays fixed and only the freed slot is filled. ' +
       'Returns per-skill recommended supports and the score delta. Mutates the live build (revert_build undoes it). ' +
       'Call load_build first.',
     inputSchema: {
@@ -21,6 +23,11 @@ export const { definition, handler } = defineTool(
         minion_skill_index: {
           type: 'number',
           description: 'pin a Companion gem to this minion skill index instead of iterating',
+        },
+        exclude_lineage: { type: 'boolean', description: 'drop every lineage support from the candidate pool' },
+        reroll: {
+          type: 'string',
+          description: 'gem id of a current support to swap out; every other support stays fixed',
         },
       },
     },

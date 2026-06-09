@@ -18,7 +18,14 @@ const summary = {
 describe('Sidebar gem section', () => {
   it('shows the gem panel and FullDPS=0 hint', () => {
     render(
-      <Sidebar summary={summary} summaryError={null} stream={initialState} gem={gemInitialState} onMutate={() => {}} />,
+      <Sidebar
+        summary={summary}
+        summaryError={null}
+        stream={initialState}
+        gem={gemInitialState}
+        onMutate={() => {}}
+        onShowRight={() => {}}
+      />,
     )
     expect(screen.getByText('gem search')).toBeTruthy()
     expect(screen.getByText(/FullDPS is 0/)).toBeTruthy()
