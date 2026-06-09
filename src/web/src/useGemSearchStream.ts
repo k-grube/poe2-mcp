@@ -1,4 +1,5 @@
 import { useEffect, useReducer } from 'react'
+import { sharedEvents } from './eventStream.js'
 import type { GemSnapshot, GemStartEvent, GemProgressEvent, GemEndEvent, GemSkillResult, Status } from './types.js'
 
 export interface GemStreamState {
@@ -59,16 +60,21 @@ export function reduceGem(state: GemStreamState, action: GemAction): GemStreamSt
 export function useGemSearchStream(): GemStreamState {
   const [state, dispatch] = useReducer(reduceGem, gemInitialState)
   useEffect(() => {
-    const es = new EventSource('/events')
-    es.addEventListener('gem:snapshot', (ev) =>
-      dispatch({ type: 'snapshot', e: JSON.parse((ev as MessageEvent).data) }),
-    )
-    es.addEventListener('gem:start', (ev) => dispatch({ type: 'start', e: JSON.parse((ev as MessageEvent).data) }))
-    es.addEventListener('gem:progress', (ev) =>
-      dispatch({ type: 'progress', e: JSON.parse((ev as MessageEvent).data) }),
-    )
-    es.addEventListener('gem:end', (ev) => dispatch({ type: 'end', e: JSON.parse((ev as MessageEvent).data) }))
-    return () => es.close()
+    const es = sharedEvents()
+    const onSnapshot = (ev: Event) => dispatch({ type: 'snapshot', e: JSON.parse((ev as MessageEvent).data) })
+    const onStart = (ev: Event) => dispatch({ type: 'start', e: JSON.parse((ev as MessageEvent).data) })
+    const onProgress = (ev: Event) => dispatch({ type: 'progress', e: JSON.parse((ev as MessageEvent).data) })
+    const onEnd = (ev: Event) => dispatch({ type: 'end', e: JSON.parse((ev as MessageEvent).data) })
+    es.addEventListener('gem:snapshot', onSnapshot)
+    es.addEventListener('gem:start', onStart)
+    es.addEventListener('gem:progress', onProgress)
+    es.addEventListener('gem:end', onEnd)
+    return () => {
+      es.removeEventListener('gem:snapshot', onSnapshot)
+      es.removeEventListener('gem:start', onStart)
+      es.removeEventListener('gem:progress', onProgress)
+      es.removeEventListener('gem:end', onEnd)
+    }
   }, [])
   return state
 }

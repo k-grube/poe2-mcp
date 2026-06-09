@@ -1,4 +1,5 @@
 import { useEffect, useReducer } from 'react'
+import { sharedEvents } from './eventStream.js'
 import type { Snapshot, StartEvent, GenEvent, EndEvent, Status, TrajectoryEntry, BuildInfo } from './types.js'
 
 export interface ScorePoint {
@@ -122,13 +123,24 @@ export function reduce(state: StreamState, action: Action): StreamState {
 export function useSearchStream(): StreamState {
   const [state, dispatch] = useReducer(reduce, initialState)
   useEffect(() => {
-    const es = new EventSource('/events')
-    es.addEventListener('snapshot', (ev) => dispatch({ type: 'snapshot', e: JSON.parse((ev as MessageEvent).data) }))
-    es.addEventListener('start', (ev) => dispatch({ type: 'start', e: JSON.parse((ev as MessageEvent).data) }))
-    es.addEventListener('gen', (ev) => dispatch({ type: 'gen', e: JSON.parse((ev as MessageEvent).data) }))
-    es.addEventListener('end', (ev) => dispatch({ type: 'end', e: JSON.parse((ev as MessageEvent).data) }))
-    es.addEventListener('build', (ev) => dispatch({ type: 'build', e: JSON.parse((ev as MessageEvent).data) }))
-    return () => es.close()
+    const es = sharedEvents()
+    const onSnapshot = (ev: Event) => dispatch({ type: 'snapshot', e: JSON.parse((ev as MessageEvent).data) })
+    const onStart = (ev: Event) => dispatch({ type: 'start', e: JSON.parse((ev as MessageEvent).data) })
+    const onGen = (ev: Event) => dispatch({ type: 'gen', e: JSON.parse((ev as MessageEvent).data) })
+    const onEnd = (ev: Event) => dispatch({ type: 'end', e: JSON.parse((ev as MessageEvent).data) })
+    const onBuild = (ev: Event) => dispatch({ type: 'build', e: JSON.parse((ev as MessageEvent).data) })
+    es.addEventListener('snapshot', onSnapshot)
+    es.addEventListener('start', onStart)
+    es.addEventListener('gen', onGen)
+    es.addEventListener('end', onEnd)
+    es.addEventListener('build', onBuild)
+    return () => {
+      es.removeEventListener('snapshot', onSnapshot)
+      es.removeEventListener('start', onStart)
+      es.removeEventListener('gen', onGen)
+      es.removeEventListener('end', onEnd)
+      es.removeEventListener('build', onBuild)
+    }
   }, [])
   return state
 }
