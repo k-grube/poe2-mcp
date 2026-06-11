@@ -49,6 +49,7 @@ import {
   pageDefinition as wikiPageDef,
   pageHandler as wikiPageHandler,
 } from './poe2-wiki.js'
+import { definition as validSupportsDef, handler as validSupportsHandler } from './valid-supports.js'
 import { definition as exportDef, handler as exportHandler } from './export-build.js'
 import { definition as revertDef, handler as revertHandler } from './revert-build.js'
 import { definition as gemSearchDef, handler as gemSearchHandler } from './gem-search.js'
@@ -69,6 +70,7 @@ const entries: Array<{ definition: Tool; handler: Handler }> = [
   { definition: explainStatDef, handler: explainStatHandler },
   { definition: wikiSearchDef, handler: wikiSearchHandler },
   { definition: wikiPageDef, handler: wikiPageHandler },
+  { definition: validSupportsDef, handler: validSupportsHandler },
   { definition: dpsDef, handler: dpsHandler },
   { definition: ehpDef, handler: ehpHandler },
   { definition: bpDef, handler: bpHandler },

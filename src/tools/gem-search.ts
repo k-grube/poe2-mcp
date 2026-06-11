@@ -29,6 +29,11 @@ export const { definition, handler } = defineTool(
           type: 'string',
           description: 'gem id of a current support to swap out; every other support stays fixed',
         },
+        max_supports: {
+          type: 'number',
+          description:
+            'cap socket count per group (overrides 5/idealized or current-count). e.g. 2 for partial-link queries',
+        },
       },
     },
   },

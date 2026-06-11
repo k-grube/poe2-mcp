@@ -174,7 +174,7 @@ function gem._advance_group(state)
   end
   state.before_score = gem.score(state.objective, group, state.pin_minion_skill)
   state.pool = gem.valid_supports(group, state.mode, { exclude_lineage = state.exclude_lineage })
-  state.k = gem.socket_count(group, state.mode)
+  state.k = tonumber(state.max_supports) or gem.socket_count(group, state.mode)
   state.chosen, state.chosen_set, state.socket = {}, {}, 0
   -- reroll mode: keep every current support except the targeted one fixed, only fill
   -- the freed slot. effectively "find me a better replacement for THIS gem".
@@ -385,6 +385,7 @@ function gem.start(args)
     pin_minion_skill = pin_minion_skill,
     exclude_lineage = args.exclude_lineage == true,
     reroll = type(args.reroll) == "string" and args.reroll or nil,
+    max_supports = tonumber(args.max_supports),
     results = {}, finished = false,
   }
   -- when an explicit index was given, write it onto every companion gem in scope so the

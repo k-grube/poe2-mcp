@@ -26,6 +26,11 @@ export const { definition, handler } = defineTool(
           description:
             'gem id (Metadata/Items/Gems/...) of a current support to swap out; every other support stays fixed',
         },
+        max_supports: {
+          type: 'number',
+          description:
+            'cap the optimizer at this many support slots per group (overrides the 5/idealized or current-count default). useful for partial-link queries like "best 2 supports for this skill"',
+        },
       },
     },
   },

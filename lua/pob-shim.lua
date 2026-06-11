@@ -172,10 +172,11 @@ handlers["set_full_dps_inclusion"] = function(args)
   end
   local include = args.included and true or false
   local list = build.skillsTab.socketGroupList
-  local touched = {}
+  local touched, changed = {}, false
   if args.all_enabled then
     for i, sg in ipairs(list) do
       if sg.enabled then
+        if sg.includeInFullDPS ~= include then changed = true end
         sg.includeInFullDPS = include
         touched[#touched+1] = i
       end
@@ -185,6 +186,7 @@ handlers["set_full_dps_inclusion"] = function(args)
       local i = tonumber(raw)
       local sg = i and list[i] or nil
       if not sg then return {ok = false, error = "no socket group at index " .. tostring(raw)} end
+      if sg.includeInFullDPS ~= include then changed = true end
       sg.includeInFullDPS = include
       touched[#touched+1] = i
     end
@@ -192,17 +194,20 @@ handlers["set_full_dps_inclusion"] = function(args)
     local i = tonumber(args.index)
     local sg = i and list[i] or nil
     if not sg then return {ok = false, error = "no socket group at index " .. tostring(args.index)} end
+    if sg.includeInFullDPS ~= include then changed = true end
     sg.includeInFullDPS = include
     touched[#touched+1] = i
   else
     return {ok = false, error = "provide one of: index, indices[], all_enabled"}
   end
-  -- rebuild output so FullDPS / SkillDPS reflect the new flags
-  if build.calcsTab and build.calcsTab.BuildOutput then
+  -- rebuild output so FullDPS / SkillDPS reflect the new flags. only do this if any
+  -- group's flag actually flipped; on a build that already had includeInFullDPS set
+  -- (or no enabled groups exist), the BuildOutput is the dominant cost during loads.
+  if changed and build.calcsTab and build.calcsTab.BuildOutput then
     build.buildFlag = true
     pcall(function() build.calcsTab:BuildOutput() end)
   end
-  return {ok = true, data = {touched_indices = touched, included = include}}
+  return {ok = true, data = {touched_indices = touched, included = include, rebuilt = changed}}
 end
 
 -- header fields shared by load_build and get_build_info
