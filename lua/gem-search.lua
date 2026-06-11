@@ -6,6 +6,9 @@
 
 local gem = {}
 
+-- companion gem name resolution (see companions.lua)
+local companions = require("companions")
+
 -- the active skill object for a socket group. display_skill (shim global) is mirage-aware:
 -- it skips the empty-named mirror placeholders a meta-skill (Mirage Deadeye/Archer) emits, so
 -- we optimize the real damage skill it mirrors (e.g. Ice Shot), not the buff.
@@ -89,15 +92,6 @@ local function raw_score(objective)
   return 0
 end
 
--- find the (active, non-support) Companion gem in a group, if any.
-local function find_companion_gem(group)
-  if not group or not group.gemList then return nil end
-  for _, gi in ipairs(group.gemList) do
-    if gi.nameSpec and gi.nameSpec:match("^Companion:") then return gi end
-  end
-  return nil
-end
-
 -- minion's active-skill-list size for a given companion gem; 1 if not resolved.
 local function companion_n_skills(companion)
   local env = build.calcsTab and build.calcsTab.mainEnv
@@ -119,7 +113,7 @@ end
 -- state). -inf on lineage violation.
 function gem.score(objective, group, pin)
   if pin then return raw_score(objective) end
-  local companion = find_companion_gem(group)
+  local companion = companions.find(group)
   if not companion then return raw_score(objective) end
   local n_skills = companion_n_skills(companion)
   if n_skills <= 1 then return raw_score(objective) end
@@ -168,15 +162,10 @@ function gem._advance_group(state)
   state.group, state.group_index = group, gi
   local a = gem.active_skill(group)
   state.skill_name = (a and a.activeEffect and a.activeEffect.grantedEffect and a.activeEffect.grantedEffect.name) or "?"
-  -- Companion gems share a mutable grantedEffect.name; resolve via skillMinion -> minion.name
-  local companion = find_companion_gem(group)
-  if companion and companion.nameSpec and companion.nameSpec:match("^Companion:") then
-    if companion.skillMinion and build.data and build.data.minions
-       and build.data.minions[companion.skillMinion] then
-      state.skill_name = "Companion: " .. build.data.minions[companion.skillMinion].name
-    else
-      state.skill_name = companion.nameSpec
-    end
+  -- the group's beast overrides the (shared, unreliable) grantedEffect.name
+  local companion = companions.find(group)
+  if companion then
+    state.skill_name = companions.display_name(companion)
   end
   state.prev = {}
   for _, inst in ipairs(group.gemList) do
@@ -403,7 +392,7 @@ function gem.start(args)
   if explicit_pin then
     for _, gi in ipairs(groups) do
       local g = build.skillsTab.socketGroupList[gi]
-      local c = find_companion_gem(g)
+      local c = companions.find(g)
       if c then c.skillMinionSkill = explicit_pin end
     end
   end

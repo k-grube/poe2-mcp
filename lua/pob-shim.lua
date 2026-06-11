@@ -76,6 +76,9 @@ local function safe_num(t, key)
   return (type(v) == "number") and v or 0
 end
 
+-- companion gem name resolution (see companions.lua)
+local companions = require("companions")
+
 local handlers = {}
 
 handlers["ping"] = function(_args)
@@ -121,25 +124,12 @@ handlers["get_socket_groups"] = function(_args)
   if build.skillsTab and build.skillsTab.socketGroupList then
     for i, sg in ipairs(build.skillsTab.socketGroupList) do
       local main_skill = display_skill(sg)
-      -- companion gems share a mutable grantedEffect.name. resolve the specific beast
-      -- via the gem's skillMinion -> build.data.minions lookup, falling back to nameSpec.
-      local function resolve_gem_name(gem, ge)
-        if gem.nameSpec and gem.nameSpec:match("^Companion:") then
-          local minion = gem.skillMinion and build.data and build.data.minions
-                         and build.data.minions[gem.skillMinion]
-          if minion and minion.name then
-            return "Companion: " .. minion.name
-          end
-          return gem.nameSpec
-        end
-        return (ge and ge.name) or gem.nameSpec or "?"
-      end
       local gems = {}
       local main_active_name = nil
       if sg.gemList then
         for _, gem in ipairs(sg.gemList) do
           local ge = gem.grantedEffect or (gem.gemData and gem.gemData.grantedEffect)
-          local resolved = resolve_gem_name(gem, ge)
+          local resolved = companions.display_name(gem, ge)
           gems[#gems+1] = {
             id      = gem.gemId,
             name    = resolved,
@@ -148,8 +138,7 @@ handlers["get_socket_groups"] = function(_args)
             level   = gem.level,
             quality = gem.quality,
           }
-          if not main_active_name and not (ge and ge.support)
-             and gem.nameSpec and gem.nameSpec:match("^Companion:") then
+          if not main_active_name and not (ge and ge.support) and companions.is_companion(gem) then
             main_active_name = resolved
           end
         end
@@ -222,20 +211,10 @@ local function build_info()
   local sg = b.skillsTab and b.skillsTab.socketGroupList and b.skillsTab.socketGroupList[b.mainSocketGroup]
   local skill = display_skill(sg)
   local main_skill_name = skill and skill.activeEffect and skill.activeEffect.grantedEffect and skill.activeEffect.grantedEffect.name
-  -- Companion gems share a mutable grantedEffect.name; resolve via the gem's
-  -- skillMinion -> data.minions lookup so the header reflects this group's beast
-  if sg and sg.gemList then
-    for _, gem in ipairs(sg.gemList) do
-      if gem.nameSpec and gem.nameSpec:match("^Companion:") then
-        local mdata = gem.skillMinion and b.data and b.data.minions and b.data.minions[gem.skillMinion]
-        if mdata and mdata.name then
-          main_skill_name = "Companion: " .. mdata.name
-        else
-          main_skill_name = gem.nameSpec
-        end
-        break
-      end
-    end
+  -- the group's beast overrides the (shared, unreliable) grantedEffect.name for the header
+  local companion = companions.find(sg)
+  if companion then
+    main_skill_name = companions.display_name(companion)
   end
   local weapon_sets
   if b.spec and b.spec.CountAllocNodes then
@@ -280,7 +259,7 @@ local function fix_broken_companions()
   local fixed, added_beasts = 0, {}
   for _, sg in ipairs(build.skillsTab.socketGroupList) do
     for _, gem in ipairs(sg.gemList or {}) do
-      if gem.nameSpec and gem.nameSpec:match("^Companion:") and not gem.gemData then
+      if companions.is_companion(gem) and not gem.gemData then
         local beast_name = gem.nameSpec:match("^Companion: (.+)$")
         local beast_id = beast_name and name_to_id[beast_name]
         if beast_id then
@@ -392,13 +371,7 @@ handlers["compare_companions"] = function(args)
   local sg = build.skillsTab and build.skillsTab.socketGroupList and build.skillsTab.socketGroupList[gi]
   if not sg then return {ok = false, error = "no such socket group: " .. tostring(gi)} end
 
-  local companion_gem
-  for _, gem in ipairs(sg.gemList or {}) do
-    if gem.nameSpec and gem.nameSpec:match("^Companion:") then
-      companion_gem = gem
-      break
-    end
-  end
+  local companion_gem = companions.find(sg)
   if not companion_gem then return {ok = false, error = "no Companion gem in group " .. gi} end
 
   -- candidates: explicit list, the user's beast library, or every beast PoB knows about
@@ -520,13 +493,7 @@ handlers["get_minion_skills"] = function(_args)
   local out = {}
   if build.skillsTab and build.skillsTab.socketGroupList then
     for gi, sg in ipairs(build.skillsTab.socketGroupList) do
-      local companion = nil
-      for _, gem in ipairs(sg.gemList or {}) do
-        if gem.nameSpec and gem.nameSpec:match("^Companion:") then
-          companion = gem
-          break
-        end
-      end
+      local companion = companions.find(sg)
       if companion then
         local sk_ref
         for _, sk in ipairs(env.player.activeSkillList) do
@@ -545,9 +512,7 @@ handlers["get_minion_skills"] = function(_args)
             skills[#skills+1] = { index = i, name = label }
           end
         end
-        local beast_name = companion.skillMinion and build.data and build.data.minions
-                           and build.data.minions[companion.skillMinion]
-                           and build.data.minions[companion.skillMinion].name
+        local beast_name = companions.beast_name(companion)
         out[#out+1] = {
           group = gi,
           gem = companion.nameSpec,
@@ -586,13 +551,7 @@ handlers["set_minion_skill"] = function(args)
   end
   local sg = build.skillsTab and build.skillsTab.socketGroupList and build.skillsTab.socketGroupList[gi]
   if not sg then return {ok = false, error = "no socket group at index " .. gi} end
-  local companion
-  for _, gem in ipairs(sg.gemList or {}) do
-    if gem.nameSpec and gem.nameSpec:match("^Companion:") then
-      companion = gem
-      break
-    end
-  end
+  local companion = companions.find(sg)
   if not companion then return {ok = false, error = "no Companion gem in group " .. gi} end
   companion.skillMinionSkill = ski
   build.buildFlag = true
