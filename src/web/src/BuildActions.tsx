@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { apiFetch } from './api.js'
 import type { StreamState } from './useSearchStream.js'
 
 const head: React.CSSProperties = { color: '#8a93a6', textTransform: 'uppercase', fontSize: 10, margin: '12px 0 4px' }
@@ -27,11 +28,7 @@ export function BuildActions({ stream }: { stream: StreamState }) {
     setBusy(true)
     setMsg(null)
     try {
-      const r = await fetch('/api/export')
-      const b = (await r.json()) as { pob_code?: string; error?: string }
-      if (!r.ok) {
-        throw new Error(b.error ?? `export failed (${r.status})`)
-      }
+      const b = await apiFetch<{ pob_code?: string }>('/api/export')
       await navigator.clipboard?.writeText(b.pob_code ?? '')
       setMsg('copied PoB code to clipboard')
     } catch (e) {
@@ -45,11 +42,7 @@ export function BuildActions({ stream }: { stream: StreamState }) {
     setBusy(true)
     setMsg(null)
     try {
-      const r = await fetch('/api/revert', { method: 'POST' })
-      if (!r.ok) {
-        const b = (await r.json().catch(() => ({}))) as { error?: string }
-        throw new Error(b.error ?? `revert failed (${r.status})`)
-      }
+      await apiFetch('/api/revert', { method: 'POST' })
       setMsg('reverted to pre-search build')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e))

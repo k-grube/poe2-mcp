@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import type { BuildSummary, SocketGroup, Gem, MinionSkillsInfo } from './types.js'
+import { apiFetch } from './api.js'
 import { SET1, SET2 } from './nodeStyle.js'
 import type { RightPanelSpec } from './RightPanel.js'
 import { ExplainStatPanel } from './ExplainStatPanel.js'
@@ -55,26 +57,19 @@ function SkillGroup({
   g,
   skillDps,
   minionInfo,
-  onMutate,
+  mutate,
 }: {
   g: SocketGroup
   skillDps: Map<string, number>
   minionInfo?: MinionSkillsInfo
-  onMutate: () => void
+  mutate: (path: string, body: unknown) => void
 }) {
   // only show an explicit title when there's a user label; otherwise the gem list speaks for itself
   const title = g.label || (!g.main_skill_name ? `group ${g.index}` : null)
   const actives = g.gems.filter((x) => !x.support)
   const supports = g.gems.filter((x) => x.support)
-  const setMain = async () => {
-    const r = await fetch('/api/main-socket-group', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ index: g.index }),
-    })
-    if (r.ok) {
-      onMutate()
-    }
+  const setMain = () => {
+    mutate('/api/main-socket-group', { index: g.index })
   }
   const activeRowStyle = (extra?: React.CSSProperties): React.CSSProperties => ({
     paddingLeft: 8,
@@ -114,7 +109,7 @@ function SkillGroup({
         )
       })}
       {minionInfo && minionInfo.skills.length > 1 ? (
-        <MinionSkillSelect group={g.index} info={minionInfo} onMutate={onMutate} />
+        <MinionSkillSelect group={g.index} info={minionInfo} mutate={mutate} />
       ) : null}
       {supports.map((x, i) => (
         <div key={`s${i}`} style={{ paddingLeft: 16, opacity: 0.6, display: 'flex', gap: 4, alignItems: 'center' }}>
@@ -125,21 +120,14 @@ function SkillGroup({
           {x.id ? (
             <button
               title={`reroll just this support (keep the other ${supports.length - 1} fixed)`}
-              onClick={async (e) => {
+              onClick={(e) => {
                 e.stopPropagation()
-                const r = await fetch('/api/gem-search/start', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    objective: { stat: 'FullDPS' },
-                    mode: { idealized: true },
-                    scope: [g.index],
-                    reroll: x.id,
-                  }),
+                mutate('/api/gem-search/start', {
+                  objective: { stat: 'FullDPS' },
+                  mode: { idealized: true },
+                  scope: [g.index],
+                  reroll: x.id,
                 })
-                if (r.ok) {
-                  onMutate()
-                }
               }}
               style={{
                 background: 'transparent',
@@ -161,22 +149,22 @@ function SkillGroup({
   )
 }
 
-function MinionSkillSelect({ group, info, onMutate }: { group: number; info: MinionSkillsInfo; onMutate: () => void }) {
+function MinionSkillSelect({
+  group,
+  info,
+  mutate,
+}: {
+  group: number
+  info: MinionSkillsInfo
+  mutate: (path: string, body: unknown) => void
+}) {
   return (
     <div style={{ paddingLeft: 16, marginTop: 2, opacity: 0.85 }}>
       <span style={{ opacity: 0.55 }}>uses </span>
       <select
         value={info.current_skill_index}
-        onChange={async (e) => {
-          const skill_index = Number(e.target.value)
-          const r = await fetch('/api/minion-skill', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ group, skill_index }),
-          })
-          if (r.ok) {
-            onMutate()
-          }
+        onChange={(e) => {
+          mutate('/api/minion-skill', { group, skill_index: Number(e.target.value) })
         }}
         style={{
           background: '#0e1218',
@@ -206,6 +194,15 @@ export function SummaryPanel({
   onMutate: () => void
   onShowRight?: (spec: RightPanelSpec | null) => void
 }) {
+  const [mutErr, setMutErr] = useState<string | null>(null)
+  // every summary-panel mutation refreshes the summary on success and surfaces the failure
+  // instead of silently no-op'ing (a failed set-main/minion-skill used to show nothing)
+  const mutate = (path: string, body: unknown) => {
+    setMutErr(null)
+    apiFetch(path, { method: 'POST', body })
+      .then(() => onMutate())
+      .catch((e) => setMutErr(e instanceof Error ? e.message : String(e)))
+  }
   const explain = (stat: string, title: string) => {
     if (onShowRight) {
       onShowRight({ title, body: () => <ExplainStatPanel stat={stat} /> })
@@ -314,14 +311,9 @@ export function SummaryPanel({
 
       <div style={head}>skills</div>
       {userGroups.map((g) => (
-        <SkillGroup
-          key={g.index}
-          g={g}
-          skillDps={skillDps}
-          minionInfo={minionByGroup.get(g.index)}
-          onMutate={onMutate}
-        />
+        <SkillGroup key={g.index} g={g} skillDps={skillDps} minionInfo={minionByGroup.get(g.index)} mutate={mutate} />
       ))}
+      {mutErr ? <div style={{ color: RED, fontSize: 11, marginTop: 4 }}>{mutErr}</div> : null}
 
       <div style={head}>tree · {tree.points_used} pts</div>
       {info.weapon_sets && info.weapon_sets.max > 0 ? (

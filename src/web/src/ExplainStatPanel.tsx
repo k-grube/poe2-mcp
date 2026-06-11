@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { apiFetch } from './api.js'
 
 interface Entry {
   value: number
@@ -99,18 +100,8 @@ export function ExplainStatPanel({ stat }: { stat: string }) {
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
-    fetch('/api/explain-stat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stat }),
-    })
-      .then(async (r) => {
-        if (!r.ok) {
-          const b = (await r.json().catch(() => ({}))) as { error?: string }
-          throw new Error(b.error ?? `explain-stat ${r.status}`)
-        }
-        return r.json() as Promise<Explain>
-      })
+    const ctrl = new AbortController()
+    apiFetch<Explain>('/api/explain-stat', { method: 'POST', body: { stat }, signal: ctrl.signal })
       .then((d) => {
         if (!cancelled) {
           setData(d)
@@ -123,6 +114,7 @@ export function ExplainStatPanel({ stat }: { stat: string }) {
       })
     return () => {
       cancelled = true
+      ctrl.abort()
     }
   }, [stat])
 

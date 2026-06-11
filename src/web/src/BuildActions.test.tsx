@@ -13,7 +13,8 @@ describe('BuildActions', () => {
     vi.stubGlobal('fetch', f)
     render(<BuildActions stream={initialState} />)
     fireEvent.click(screen.getByText(/export pob code/i))
-    await waitFor(() => expect(f).toHaveBeenCalledWith('/api/export'))
+    await waitFor(() => expect(f).toHaveBeenCalled())
+    expect(f.mock.calls[0][0]).toBe('/api/export')
   })
 
   it('reveals revert only after a search, then posts /api/revert', async () => {
@@ -23,6 +24,6 @@ describe('BuildActions', () => {
     expect(screen.queryByText(/revert search/i)).toBeNull()
     rerender(<BuildActions stream={{ ...initialState, status: 'done' }} />)
     fireEvent.click(screen.getByText(/revert search/i))
-    await waitFor(() => expect(f).toHaveBeenCalledWith('/api/revert', { method: 'POST' }))
+    await waitFor(() => expect(f).toHaveBeenCalledWith('/api/revert', expect.objectContaining({ method: 'POST' })))
   })
 })

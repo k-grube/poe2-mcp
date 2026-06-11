@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { apiFetch } from './api.js'
 import type { TreeLayout } from './types.js'
 
 export interface LayoutState {
@@ -13,21 +14,17 @@ export function useTreeLayout(): LayoutState {
   useEffect(() => {
     let cancelled = false
     let timer: ReturnType<typeof setTimeout>
+    const ctrl = new AbortController()
     const attempt = () => {
-      fetch('/api/tree-layout')
-        .then((r) => {
-          if (!r.ok) {
-            throw new Error(`tree-layout ${r.status}`)
-          }
-          return r.json() as Promise<TreeLayout>
-        })
+      apiFetch<TreeLayout>('/api/tree-layout', { signal: ctrl.signal })
         .then((layout) => {
           if (!cancelled) {
             setState({ layout, error: null })
           }
         })
         .catch(() => {
-          // no build loaded yet, or server restarting -> keep waiting
+          // no build loaded yet, server restarting, or the request stalled (apiFetch times
+          // it out instead of leaving the poll hung) -> keep waiting
           if (!cancelled) {
             timer = setTimeout(attempt, 2000)
           }
@@ -37,6 +34,7 @@ export function useTreeLayout(): LayoutState {
     return () => {
       cancelled = true
       clearTimeout(timer)
+      ctrl.abort()
     }
   }, [])
   return state

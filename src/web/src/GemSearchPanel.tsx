@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { apiFetch } from './api.js'
 import type { GemStreamState } from './useGemSearchStream.js'
 
 const head: React.CSSProperties = { color: '#8a93a6', textTransform: 'uppercase', fontSize: 10, margin: '12px 0 4px' }
@@ -64,15 +65,7 @@ export function GemSearchPanel({ gem }: { gem: GemStreamState }) {
     setBusy(true)
     setError(null)
     try {
-      const r = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!r.ok) {
-        const b = (await r.json().catch(() => ({}))) as { error?: string }
-        throw new Error(b.error ?? `request failed (${r.status})`)
-      }
+      await apiFetch(url, { method: 'POST', body })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {

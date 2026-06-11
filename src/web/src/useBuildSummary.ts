@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { apiFetch } from './api.js'
 import type { BuildInfo, BuildSummary } from './types.js'
 
 export interface SummaryState {
@@ -31,13 +32,8 @@ export function useBuildSummary(buildInfo: BuildInfo | null): SummaryState {
       return
     }
     let cancelled = false
-    fetch('/api/build-summary')
-      .then((r) => {
-        if (!r.ok) {
-          throw new Error(`build-summary ${r.status}`)
-        }
-        return r.json() as Promise<BuildSummary>
-      })
+    const ctrl = new AbortController()
+    apiFetch<BuildSummary>('/api/build-summary', { signal: ctrl.signal })
       .then((s) => {
         if (!cancelled) {
           setResult({ forBuildInfo: buildInfo, forVersion: version, summary: s, error: null })
@@ -55,6 +51,7 @@ export function useBuildSummary(buildInfo: BuildInfo | null): SummaryState {
       })
     return () => {
       cancelled = true
+      ctrl.abort()
     }
   }, [buildInfo, version])
 

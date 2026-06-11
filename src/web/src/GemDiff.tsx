@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { apiFetch } from './api.js'
 import type { GemSkillResult } from './types.js'
 
 const head: React.CSSProperties = { color: '#8a93a6', textTransform: 'uppercase', fontSize: 10, margin: '12px 0 4px' }
@@ -34,11 +35,7 @@ export function GemDiff({ results, onMutate }: { results: GemSkillResult[]; onMu
     setBusy(kind)
     setMsg(null)
     try {
-      const r = await fetch(url, { method: 'POST' })
-      if (!r.ok) {
-        const b = (await r.json().catch(() => ({}))) as { error?: string }
-        throw new Error(b.error ?? `${kind} failed (${r.status})`)
-      }
+      await apiFetch(url, { method: 'POST' })
       setMsg(successMsg)
       setHidden(true)
       onMutate()
